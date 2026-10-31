@@ -116,3 +116,39 @@ func TestSearchReplyMalformed(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestSearchReplyRESP3Attributes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		item map[any]any
+		want map[string]string
+	}{
+		{"attributes_with_empty_values", map[any]any{"extra_attributes": map[any]any{"$": `{"id":"task"}`}, "values": []any{}}, map[string]string{"$": `{"id":"task"}`}},
+		{"attributes_take_precedence", map[any]any{"extra_attributes": map[any]any{"id": "task"}, "values": []any{"id", "other"}}, map[string]string{"id": "task"}},
+		{"empty_attributes", map[any]any{"extra_attributes": map[any]any{}, "values": []any{}}, map[string]string{}},
+		{"nil_attributes", map[any]any{"extra_attributes": nil, "values": []any{}}, map[string]string{}},
+		{"missing_attributes", map[any]any{"values": []any{}}, map[string]string{}},
+		{"missing_content", map[any]any{}, nil},
+		{"nil_content", map[any]any{"extra_attributes": nil, "values": nil}, nil},
+		{"values_pairs", map[any]any{"values": []any{"id", "task"}}, map[string]string{"id": "task"}},
+		{"values_map", map[any]any{"extra_attributes": nil, "values": map[any]any{"id": "task"}}, map[string]string{"id": "task"}},
+		{"empty_attributes_with_values", map[any]any{"extra_attributes": map[any]any{}, "values": []any{"id", "task"}}, map[string]string{"id": "task"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.item["id"] = "key"
+			raw := map[any]any{
+				"total_results": int64(1),
+				"results":       []any{tc.item},
+				"format":        "STRING",
+			}
+			got, err := parseSearchReply(raw, false)
+			require.NoError(t, err)
+			require.Equal(t, redis.FTSearchResult{Total: 1, Docs: []redis.Document{{ID: "key", Fields: tc.want}}}, got)
+			got, err = parseSearchReply(raw, true)
+			require.NoError(t, err)
+			require.Equal(t, redis.FTSearchResult{Total: 1, Docs: []redis.Document{{ID: "key"}}}, got)
+		})
+	}
+}
