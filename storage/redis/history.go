@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"iter"
 	"slices"
-	"strings"
 
 	"github.com/redis/go-redis/v9"
 
@@ -134,8 +133,7 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 	query := fmt.Sprintf("@endedAt:[-inf (%d]", cutoff)
 
-	// Collect first, delete after: deleting mid-walk would shift the offsets
-	// the pagination is stepping through and leave expired entries behind.
+	// Collect first so a traversal error does not leave a partially cleaned history.
 	var keys []string
 	if err := s.searchAll(ctx, s.historyIndexName(), query, nil, true,
 		func(key, body string) (bool, error) {
@@ -161,48 +159,19 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 	return nil
 }
 
-// findHistoryKeys returns all Redis keys for a task's history entries via
-// RediSearch. The TAG query folds case, so each entry's taskId is compared
-// exactly and those of a task whose ID differs only by case are left out.
-func (s *Store) findHistoryKeys(ctx context.Context, taskID string) ([]string, error) {
-	escapedID := escapeTag(taskID)
-	query := fmt.Sprintf("@taskId:{%s}", escapedID)
-
-	var keys []string
-	err := s.searchAll(ctx, s.historyIndexName(), query, nil, false,
-		func(key, body string) (bool, error) {
-			hd, parseErr := unmarshalJSONResult[historyData](body)
-			if parseErr != nil {
-				return false, parseErr
-			}
-			if hd.TaskID == taskID {
-				keys = append(keys, key)
-			}
-			return true, nil
-		})
-	if err != nil {
-		// If index doesn't exist yet, fall back gracefully
-		if strings.Contains(err.Error(), "no such index") {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return keys, nil
-}
-
 // ListHistory returns up to (pg.Limit+1) history entries for taskID,
 // sorted by StartedAt descending with ID descending as tie-breaker, starting
 // after the cursor position in pg. When f is non-nil it is evaluated on the
 // client with CEL semantics, after RediSearch has narrowed the scan by the part
 // of f it evaluates exactly (see filterPlan).
 //
-// RediSearch sorts by one field only, so the server orders by StartedAt and
-// the client orders ties by ID: the walk continues past the page until the
-// tie group at its boundary is complete, then sorts what it holds. The TAG
+// Keyset traversal orders by StartedAt and ID descending. The TAG
 // query on taskId folds case, so entries of a task whose ID differs only by
 // case are skipped on the client.
 func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.HistoryPage, f q.Expr) ([]*horai.TaskHistory, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	query := fmt.Sprintf("@taskId:{%s}", escapeTag(taskID))
 	if pg.AfterID != "" {
 		query += fmt.Sprintf(" @startedAt:[-inf %d]", pg.AfterStartedAt)

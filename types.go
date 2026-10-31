@@ -33,10 +33,10 @@ const (
 	// TaskStatusRunning indicates the task's function is currently executing.
 	// The scheduler transitions a task to this status just before invoking its
 	// function and resets it to [TaskStatusActive] (or [TaskStatusCompleted]
-	// for one-shot tasks) upon completion.
+	// for one-shot or exhausted schedules) upon completion.
 	TaskStatusRunning TaskStatus = 4
-	// TaskStatusCompleted indicates a one-shot task that has finished its
-	// single execution. Completed tasks are inert and reject most management
+	// TaskStatusCompleted indicates a finished one-shot task or an exhausted
+	// periodic schedule. Completed tasks are inert and reject most management
 	// operations with [ErrTaskCompleted].
 	TaskStatusCompleted TaskStatus = 5
 )

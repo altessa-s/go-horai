@@ -55,6 +55,7 @@ func TestRedisCluster(t *testing.T) {
 	}})
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	require.Eventually(t, func() bool { return client.Set(t.Context(), "cluster-ready", "1", time.Minute).Err() == nil }, time.Minute, 100*time.Millisecond)
+	t.Run("compacted_keyset", func(t *testing.T) { compactedKeyset(t, addr, true) })
 	storagetest.Run(t, func(t testing.TB) horai.Store {
 		t.Helper()
 		s, err := redisstore.New(client, redisstore.WithKeyPrefix(namespace()))

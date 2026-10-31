@@ -21,6 +21,7 @@ var contracts = []struct {
 	{"LargeValues", LargeValues},
 	{"ListTasksFilterParity", ListTasksFilterParity},
 	{"FinishRun", FinishRun},
+	{"ExhaustedFinish", ExhaustedFinish},
 	{"ReplaceTaskIf", ReplaceTaskIf},
 	{"CreateTask", CreateTask},
 	{"RenewRun", RenewRun},

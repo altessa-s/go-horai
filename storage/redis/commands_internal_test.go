@@ -66,7 +66,7 @@ func TestCommandsAndErrors(t *testing.T) {
 	require.Equal(t, "prefix:task:task", s.taskKey("task"))
 	require.Equal(t, "prefix:history:task:h", s.historyKey("task", "h"))
 	require.Equal(t, "prefix:idx:tasks:v2", s.taskIndexName())
-	require.Equal(t, "prefix:idx:history", s.historyIndexName())
+	require.Equal(t, "prefix:idx:history:v2", s.historyIndexName())
 	require.Equal(t, "a:b", (&Store{}).key("a", "b"))
 	state, err := s.GetTask(t.Context(), "task")
 	require.NoError(t, err)

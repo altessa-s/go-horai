@@ -11,5 +11,8 @@ Run unit tests with `go test ./...`. Live backend contracts are in `integration/
 The task search index is versioned as `{prefix}:idx:tasks:v2` (`taskIndexVersion`); v2 adds `runStartedAt` for unfinished-run recovery.
 `EnsureIndexes` creates it beside an older index. The history schema is unchanged and keeps its existing index name.
 
-Searches request IDs with `FT.SEARCH NOCONTENT`, then load JSON bodies individually in search order so each read routes to its own cluster slot.
-Keys deleted before loading are skipped; surviving records count toward pagination lookahead. Search pagination is not a snapshot.
+Searches use `FT.AGGREGATE` keysets over raw IDs (history: start time descending, ID descending), with the Redis key as a final tie breaker. Each page seeks strictly beyond the last indexed tuple, then loads JSON bodies individually so each read routes to its own cluster slot.
+Keys deleted before loading are skipped; surviving records count toward pagination lookahead. Deleting earlier entries cannot shift the next page. Search pagination is not a snapshot.
+
+Keyset queries use sortable index values without `LOAD`, including in cluster mode.
+History index `history:v2` adds sortable raw identity fields; `EnsureIndexes` creates it independently of older indexes.

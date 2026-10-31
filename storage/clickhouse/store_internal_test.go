@@ -82,7 +82,7 @@ func TestHistoryCommandsAndMapping(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []*horai.TaskHistory{h}, got)
 	require.Equal(t, strings.Count(c.stmt, "?"), len(c.args))
-	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{}, query.Cmp{Field: "bad", Op: query.Eq, Value: "x"})
+	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, query.Cmp{Field: "bad", Op: query.Eq, Value: "x"})
 	require.Error(t, err)
 }
 func TestHistoryErrorMapping(t *testing.T) {
@@ -94,12 +94,12 @@ func TestHistoryErrorMapping(t *testing.T) {
 	require.ErrorIs(t, s.EnsureSchema(t.Context()), failure)
 	require.ErrorIs(t, s.AddHistory(t.Context(), &horai.TaskHistory{}), failure)
 	require.ErrorIs(t, s.DeleteHistory(t.Context(), "task"), failure)
-	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{}, nil)
+	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, nil)
 	require.ErrorIs(t, err, failure)
 	for _, rows := range []*historyRows{{scanErr: failure}, {iterErr: failure}} {
 		c.err = nil
 		c.rows = rows
-		_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{}, nil)
+		_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, nil)
 		require.ErrorIs(t, err, failure)
 		require.True(t, rows.closed)
 	}

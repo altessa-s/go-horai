@@ -95,7 +95,7 @@ func (s *dynamicSlots) status() (int, int, int) {
 	}
 	return s.running, available, -1
 }
-func (s *dynamicSlots) acquire(_ context.Context, p schedtask.Priority, manual bool) (func(), bool) {
+func (s *dynamicSlots) acquire(_ context.Context, p schedtask.Priority, _ bool) (func(), bool) {
 	if p == schedtask.PriorityCritical {
 		return func() {}, true
 	}
@@ -105,9 +105,9 @@ func (s *dynamicSlots) acquire(_ context.Context, p schedtask.Priority, manual b
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !manual && limit > 0 {
+	if limit > 0 {
 		available := limit - s.running
-		if available <= 0 || (p != schedtask.PriorityHigh && available <= max(0, s.reserved-s.high)) {
+		if available <= 0 || (p != schedtask.PriorityHigh && available <= max(0, min(s.reserved, limit-1)-s.high)) {
 			return nil, false
 		}
 	}
@@ -153,8 +153,7 @@ func (s *Scheduler) dispatchPending(pending []pendingTask) {
 	}
 }
 
-// runTaskWithSemaphore also handles manual dispatch, which bypasses the
-// tick gate in dynamic mode but still contributes to its running count.
+// runTaskWithSemaphore acquires admission for static scheduled dispatch.
 func (s *Scheduler) runTaskWithSemaphore(task *registeredTask, state *horai.TaskState) {
 	release, ok := s.slots.acquire(s.stopCtx, task.config.Priority, true)
 	if !ok {

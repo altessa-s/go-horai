@@ -157,7 +157,8 @@ func (s *Store) buildStatements() statements {
 		// both dialects evaluate every expression against the old row.
 		finish: b("UPDATE "+t+" SET"+
 			" next_run_at = CASE WHEN "+executed+" THEN 0 WHEN one_shot THEN next_run_at WHEN schedule = ? THEN ? ELSE next_run_at END,"+
-			" status = CASE WHEN "+executed+" THEN "+completed+" WHEN status = "+running+" THEN "+active+" ELSE status END,"+
+			" status = CASE WHEN ("+executed+" OR (NOT one_shot AND schedule = ? AND ? = 0)) THEN "+completed+
+			" WHEN status = "+running+" THEN "+active+" ELSE status END,"+
 			" last_run_at = ?, updated_at = ?, run_started_at = 0, run_lease_until = 0, run_lease_id = '',"+
 			" failures = CASE WHEN ? THEN 0 ELSE failures + 1 END,"+
 			" revision = revision + 1"+owned, 1),
@@ -253,7 +254,7 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 	}
 	return s.affected(ctx, "finish scheduler run", s.stmts.finish,
 		result.RunAt, result.Schedule, result.NextRunAt,
-		result.RunAt,
+		result.RunAt, result.Schedule, result.NextRunAt,
 		result.StartedAt, result.EndedAt,
 		result.Success,
 		id, runID,
@@ -335,6 +336,9 @@ func (s *Store) CleanupHistory(ctx context.Context, endedBefore int64) error {
 // pg.AfterID, ordered by ID. A non-nil f is translated to a parameterized SQL
 // predicate and evaluated by the database.
 func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f query.Expr) ([]*horai.TaskState, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	from, where, args, err := s.filterClause(f, query.TaskFields(), s.tasksTable, s.taskFilter)
 	if err != nil {
 		return nil, err
@@ -354,6 +358,9 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f query.Expr) 
 // cursor, ordered by StartedAt descending and ID descending. A non-nil f is
 // evaluated by the database.
 func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.HistoryPage, f query.Expr) ([]*horai.TaskHistory, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	from, where, args, err := s.filterClause(f, query.HistoryFields(), s.historyTable, s.historyFilter)
 	if err != nil {
 		return nil, err

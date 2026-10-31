@@ -31,7 +31,7 @@ const (
 	taskIndexSuffix    = "tasks"
 	historyIndexSuffix = "history"
 
-	// searchPageSize is how many documents each FT.SEARCH round-trip fetches.
+	// searchPageSize is how many documents each FT.AGGREGATE round-trip fetches.
 	// Reads walk every matching document a page at a time via searchAll rather
 	// than issuing one capped request.
 	searchPageSize = 1000
@@ -49,7 +49,7 @@ const (
 //   - Task state: {prefix}:task:{task_id} (JSON document via JSON.SET)
 //   - History entry: {prefix}:history:{task_id}:{history_id} (JSON document via JSON.SET)
 //   - Task index: {prefix}:idx:tasks:v2 (RediSearch FT index, created by [Store.EnsureIndexes])
-//   - History index: {prefix}:idx:history (RediSearch FT index, created by [Store.EnsureIndexes])
+//   - History index: {prefix}:idx:history:v2 (RediSearch FT index, created by [Store.EnsureIndexes])
 type Store struct {
 	client    redis.UniversalClient
 	keyPrefix string
@@ -142,41 +142,28 @@ func (s *Store) taskIndexName() string {
 
 // historyIndexName returns the RediSearch index name for history.
 func (s *Store) historyIndexName() string {
-	return s.key(idxKeyPrefix, historyIndexSuffix)
+	return s.key(idxKeyPrefix, historyIndexSuffix+":"+historyIndexVersion)
 }
 
-// searchAll walks every document matching query, one page at a time, calling
-// fn for each. Return false from fn to stop early. Unless noContent is set,
-// bodies are loaded individually so each JSON.GET routes to its own cluster slot.
-// Deleted keys are skipped; only loaded records count toward caller lookahead.
-//
-// FT.SEARCH answers a single page per call and reports the full match count in
-// Total. Issuing one request with a large LIMIT and consuming whatever comes
-// back silently discards every match past that ceiling — for the task index
-// that means tasks that simply stop being scheduled once the collection grows,
-// with no error anywhere to explain it.
-//
-// Paging by offset is not a snapshot: documents written or deleted mid-walk can
-// shift later pages, so a concurrent writer may cause an entry to be seen twice
-// or missed. Every caller here either tolerates that (schedule reads converge on
-// the next tick) or deletes what it collects afterwards rather than during.
+// searchAll traverses indexed sort values and IDs using a keyset. Cursor values
+// come from the search reply, so deletion before JSON.GET cannot shift the walk.
+// Each body is fetched separately to route it to its cluster slot.
 func (s *Store) searchAll(
-	ctx context.Context,
-	index, query string,
-	sortBy []redis.FTSearchSortBy,
-	noContent bool,
+	ctx context.Context, index, query string, sortBy []redis.FTSearchSortBy, noContent bool,
 	fn func(key, body string) (bool, error),
 ) error {
-	for offset := 0; ; offset += searchPageSize {
-		result, err := s.search(ctx, index, query, sortBy, offset, searchPageSize)
+	history := len(sortBy) > 0 && sortBy[0].FieldName == startedAtField
+	var cursor *searchCursor
+	for {
+		rows, err := s.searchKeyset(ctx, index, query, history, cursor)
 		if err != nil {
 			return err
 		}
-
-		for _, doc := range result.Docs {
+		for _, row := range rows {
+			cursor = &row
 			var body string
 			if !noContent {
-				body, err = s.client.JSONGet(ctx, doc.ID, "$").Result()
+				body, err = s.client.JSONGet(ctx, row.key, "$").Result()
 				if errors.Is(err, redis.Nil) {
 					continue
 				}
@@ -184,16 +171,15 @@ func (s *Store) searchAll(
 					return err
 				}
 			}
-			cont, fnErr := fn(doc.ID, body)
-			if fnErr != nil {
-				return fnErr
+			cont, err := fn(row.key, body)
+			if err != nil {
+				return err
 			}
 			if !cont {
 				return nil
 			}
 		}
-
-		if len(result.Docs) < searchPageSize || offset+len(result.Docs) >= result.Total {
+		if len(rows) < searchPageSize {
 			return nil
 		}
 	}
@@ -360,36 +346,18 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 }
 
 // DeleteTask removes a task state and all of its associated history entries
-// from Redis. The deletion is performed in a single pipeline for efficiency,
-// but is not transactional; a partial failure may leave orphaned history keys.
+// from Redis. History deletion must succeed before the task is removed.
 // If the task does not exist, DeleteTask succeeds silently.
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	// Find all history keys for this task via RediSearch
-	historyKeys, err := s.findHistoryKeys(ctx, id)
-	if err != nil {
-		return coreerrs.Wrapf(err, "failed to find history for task %q", id)
+	if err := s.DeleteHistory(ctx, id); err != nil {
+		return err
 	}
-
-	pipe := s.client.Pipeline()
-
-	// Delete task state
-	pipe.Del(ctx, s.taskKey(id))
-
-	// Delete all history entries
-	for _, hKey := range historyKeys {
-		pipe.Del(ctx, hKey)
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		return coreerrs.Wrapf(err, "failed to delete task %q", id)
-	}
-
-	return nil
+	return s.client.Del(ctx, s.taskKey(id)).Err()
 }
 
 // Tasks returns an iterator over all task states, sorted by ID in ascending
-// order. The results are fetched in a single RediSearch FT.SEARCH query with
-// an upper bound of 10 000 documents. If the iterator encounters a Redis or
+// order. Results are traversed using bounded aggregate keyset pages.
+// If the iterator encounters a Redis or
 // deserialization error, it yields (nil, err) and stops.
 func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
@@ -452,9 +420,11 @@ func unmarshalJSONResult[T any](raw string) (*T, error) {
 // lexicographically greater than pg.AfterID, sorted by ID ascending. When f
 // is non-nil it is evaluated on the client with CEL semantics, after
 // RediSearch has narrowed the scan by the part of f it evaluates exactly (see
-// filterPlan). RediSearch does not support cursor-seek on TAG fields, so the
-// walk skips every ID up to pg.AfterID on the client.
+// filterPlan). Aggregate keysets preserve traversal across concurrent deletions.
 func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*horai.TaskState, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	query := "*"
 	var plan *filterPlan
 	if f != nil {
@@ -532,7 +502,10 @@ local executed = s.one_shot and (s.run_at or 0) == tonumber(ARGV[10])
 local nextRun = s.next_run_at or 0
 if executed then status = tonumber(ARGV[9]); nextRun = 0
 elseif status == tonumber(ARGV[7]) then status = tonumber(ARGV[8]) end
-if not s.one_shot and s.schedule == ARGV[5] then nextRun = tonumber(ARGV[4]) end
+if not s.one_shot and s.schedule == ARGV[5] then
+ nextRun = tonumber(ARGV[4])
+ if nextRun == 0 then status = tonumber(ARGV[9]) end
+end
 local failures = 0
 if ARGV[6] ~= '1' then failures = (s.failures or 0) + 1 end
 redis.call('JSON.SET', KEYS[1], '$.status', tostring(status))

@@ -176,15 +176,17 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	}
 
 	nextRunAt := int64(0)
-	if !freshState.OneShot {
-		nextRunAt = s.calculateNextRun(recCtx, startTime, freshState).Unix()
+	if !state.OneShot {
+		if next := s.calculateNextRun(recCtx, startTime, state); !next.IsZero() {
+			nextRunAt = next.Unix()
+		}
 	}
 	if !success {
 		s.logger.ErrorContext(recCtx, "task execution failed", slog.String("task_id", state.ID), slog.Any("error", execErr))
 	}
 	finished, err := s.storage.FinishRun(recCtx, state.ID, runID, horai.RunResult{
 		StartedAt: startTime.Unix(), EndedAt: endTime.Unix(), NextRunAt: nextRunAt,
-		RunAt: state.RunAt, Schedule: freshState.Schedule, Success: success,
+		RunAt: state.RunAt, Schedule: state.Schedule, Success: success,
 	})
 	if err != nil {
 		s.logger.ErrorContext(recCtx, "failed to finish task run", slog.String("task_id", state.ID), slog.Any("error", err))
@@ -242,4 +244,15 @@ func (s *Scheduler) invoke(ctx context.Context, fn schedtask.Func) (err error) {
 		}
 	}()
 	return fn(ctx)
+}
+
+// advanceSchedule completes a periodic task when no future occurrence exists.
+func (s *Scheduler) advanceSchedule(ctx context.Context, from time.Time, state *horai.TaskState) {
+	next := s.calculateNextRun(ctx, from, state)
+	if next.IsZero() {
+		state.NextRunAt = 0
+		state.Status = horai.TaskStatusCompleted
+		return
+	}
+	state.NextRunAt = next.Unix()
 }

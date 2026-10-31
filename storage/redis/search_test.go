@@ -41,6 +41,8 @@ func (h *sequenceHook) ProcessHook(redis.ProcessHook) redis.ProcessHook {
 		switch cmd := cmd.(type) {
 		case *redis.Cmd:
 			cmd.SetVal(step.value)
+		case *redis.IntCmd:
+			cmd.SetVal(step.value.(int64))
 		case *redis.JSONCmd:
 			cmd.SetVal(step.value.(string))
 		default:
@@ -70,23 +72,21 @@ func TestSearchLoadsBodies(t *testing.T) {
 					t.Cleanup(func() { require.NoError(t, client.Close()) })
 					s, err := store.New(client, store.WithKeyPrefix("test"))
 					require.NoError(t, err)
-					index, query, sort, direction := "test:idx:tasks:v2", "*", "id", "ASC"
+					index, query, direction := "test:idx:tasks:v2", "*", "ASC"
 					switch operation {
 					case "due":
 						query = "@status:[1 1] @nextRunAt:[-inf 10]"
 					case "unfinished":
 						query = "(@runStartedAt:[-inf (0] | @runStartedAt:[(0 +inf])"
 					case "history":
-						index, query, sort, direction = "test:idx:history", "@taskId:{task}", "startedAt", "DESC"
+						index, query, direction = "test:idx:history:v2", "@taskId:{task}", "DESC"
 					case "list_history":
-						index, query, sort, direction = "test:idx:history", "(@taskId:{task})", "startedAt", "DESC"
+						index, query, direction = "test:idx:history:v2", "(@taskId:{task})", "DESC"
 					}
-					var reply any = []any{int64(3), "gone", "{one}:a", "{two}:b"}
-					if protocol == 3 {
-						reply = map[any]any{"total_results": int64(3), "results": []any{map[any]any{"id": "gone", "extra_attributes": nil, "values": []any{}}, map[any]any{"id": "{one}:a"}, map[any]any{"id": "{two}:b"}}}
-					}
+					history := direction == "DESC"
+					reply := aggregateReply(protocol, history, []string{"gone", "{one}:a", "{two}:b"}, []string{"0", "a", "b"}, []int64{30, 20, 10})
 					hook := &sequenceHook{t: t, steps: []replyStep{
-						{args: []any{"FT.SEARCH", index, query, "NOCONTENT", "SORTBY", sort, direction, "LIMIT", 0, 1000, "DIALECT", 2}, value: reply},
+						{args: aggregateArgs(index, query, history, ""), value: reply},
 						{args: []any{"JSON.GET", "gone", "$"}, err: redis.Nil},
 						{args: []any{"JSON.GET", "{one}:a", "$"}, value: `[{"id":"a","task_id":"task","started_at":20}]`},
 						{args: []any{"JSON.GET", "{two}:b", "$"}, value: `[{"id":"b","task_id":"task","started_at":10}]`},
@@ -147,7 +147,7 @@ func TestSearchBodyErrors(t *testing.T) {
 			client := redis.NewClient(&redis.Options{})
 			t.Cleanup(func() { require.NoError(t, client.Close()) })
 			hook := &sequenceHook{t: t, steps: []replyStep{
-				{args: []any{"FT.SEARCH", "test:idx:tasks:v2", "*", "NOCONTENT", "SORTBY", "id", "ASC", "LIMIT", 0, 1000, "DIALECT", 2}, value: []any{int64(1), "key"}},
+				{args: aggregateArgs("test:idx:tasks:v2", "*", false, ""), value: aggregateReply(2, false, []string{"key"}, []string{"key"}, nil)},
 				{args: []any{"JSON.GET", "key", "$"}, value: tc.body, err: tc.err},
 			}}
 			client.AddHook(hook)
@@ -163,32 +163,143 @@ func TestSearchBodyErrors(t *testing.T) {
 	}
 }
 
-func TestSearchDeletedPagePreservesLookahead(t *testing.T) {
+func aggregateArgs(index, query string, history bool, filter string) []any {
+	key := `format("%s%s", "test:task:", @id)`
+	if index == "test:idx:history:v2" {
+		key = `format("%s%s:%s", "test:history:", @taskId, @id)`
+	}
+	args := []any{"FT.AGGREGATE", index, query, "APPLY", key, "AS", "__key"}
+	if filter != "" {
+		args = append(args, "FILTER", filter)
+	}
+	if history {
+		args = append(args, "SORTBY", 6, "@startedAt", "DESC", "@id", "DESC", "@__key", "ASC")
+	} else {
+		args = append(args, "SORTBY", 4, "@id", "ASC", "@__key", "ASC")
+	}
+	return append(args, "LIMIT", 0, 1000, "DIALECT", 2)
+}
+
+func aggregateReply(protocol int, history bool, keys, ids []string, times []int64) any {
+	rows := []any{}
+	for i, key := range keys {
+		row := []any{"__key", key, "id", ids[i]}
+		attrs := map[any]any{"__key": key, "id": ids[i]}
+		if history {
+			row = append(row, "startedAt", fmt.Sprint(times[i]))
+			attrs["startedAt"] = fmt.Sprint(times[i])
+		}
+		if protocol == 2 {
+			rows = append(rows, row)
+		} else {
+			rows = append(rows, map[any]any{"extra_attributes": attrs})
+		}
+	}
+	if protocol == 2 {
+		return append([]any{int64(len(keys))}, rows...)
+	}
+	return map[any]any{"results": rows}
+}
+
+func TestSearchCompactedIndexPreservesLookahead(t *testing.T) {
+	t.Parallel()
+	for _, history := range []bool{false, true} {
+		t.Run(fmt.Sprint(history), func(t *testing.T) {
+			t.Parallel()
+			client := redis.NewClient(&redis.Options{})
+			t.Cleanup(func() { require.NoError(t, client.Close()) })
+			keys, ids, times := []string{}, []string{}, []int64{}
+			for i := range 1000 {
+				key := fmt.Sprintf("gone:%04d", i)
+				keys = append(keys, key)
+				ids = append(ids, key)
+				times = append(times, 30)
+			}
+			index, query := "test:idx:tasks:v2", "*"
+			filter := `(@id > "gone:0999" || (@id == "gone:0999" && @__key > "gone:0999"))`
+			if history {
+				index, query = "test:idx:history:v2", "(@taskId:{task})"
+				// All deleted entries have the same timestamp; the ID tie breaker must advance too.
+				for i := range ids {
+					ids[i] = fmt.Sprintf("gone:%04d", 999-i)
+				}
+				filter = `(@startedAt < 30 || (@startedAt == 30 && (@id < "gone:0000" || (@id == "gone:0000" && @__key > "gone:0999"))))`
+			}
+			steps := []replyStep{{args: aggregateArgs(index, query, history, ""), value: aggregateReply(2, history, keys, ids, times)}}
+			for _, key := range keys {
+				steps = append(steps, replyStep{args: []any{"JSON.GET", key, "$"}, err: redis.Nil})
+			}
+			// The compacted index contains only these two rows, both now at offset zero.
+			steps = append(steps, replyStep{args: aggregateArgs(index, query, history, filter), value: aggregateReply(2, history, []string{"x", "y"}, []string{"x", "y"}, []int64{20, 10})},
+				replyStep{args: []any{"JSON.GET", "x", "$"}, value: `[{"id":"x","task_id":"task","started_at":20}]`},
+				replyStep{args: []any{"JSON.GET", "y", "$"}, value: `[{"id":"y","task_id":"task","started_at":10}]`})
+			hook := &sequenceHook{t: t, steps: steps}
+			client.AddHook(hook)
+			s, err := store.New(client, store.WithKeyPrefix("test"))
+			require.NoError(t, err)
+			if history {
+				values, err := s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, nil)
+				require.NoError(t, err)
+				require.Len(t, values, 2)
+			} else {
+				values, err := s.ListTasks(t.Context(), horai.TaskPage{Limit: 1}, nil)
+				require.NoError(t, err)
+				require.Len(t, values, 2)
+			}
+			require.Empty(t, hook.steps)
+		})
+	}
+}
+
+func TestDeleteHistoryFailureLeavesTaskRetryable(t *testing.T) {
 	t.Parallel()
 	client := redis.NewClient(&redis.Options{})
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
-	first := []any{int64(1002)}
-	for i := range 1000 {
-		first = append(first, fmt.Sprintf("gone:%d", i))
-	}
-	search := func(offset int, reply any) replyStep {
-		return replyStep{args: []any{"FT.SEARCH", "test:idx:tasks:v2", "*", "NOCONTENT", "SORTBY", "id", "ASC", "LIMIT", offset, 1000, "DIALECT", 2}, value: reply}
-	}
-	steps := []replyStep{search(0, first)}
-	for i := range 1000 {
-		steps = append(steps, replyStep{args: []any{"JSON.GET", fmt.Sprintf("gone:%d", i), "$"}, err: redis.Nil})
-	}
-	steps = append(steps, search(1000, []any{int64(1002), "a", "b"}),
-		replyStep{args: []any{"JSON.GET", "a", "$"}, value: `[{"id":"a"}]`},
-		replyStep{args: []any{"JSON.GET", "b", "$"}, value: `[{"id":"b"}]`})
-	hook := &sequenceHook{t: t, steps: steps}
+	failure := errors.New("history unavailable")
+	search := replyStep{args: aggregateArgs("test:idx:history:v2", "*", false, ""), value: aggregateReply(2, false, []string{"history-key"}, []string{"h"}, nil)}
+	body := replyStep{args: []any{"JSON.GET", "history-key", "$"}, value: `[{"id":"h","task_id":"task"}]`}
+	hook := &sequenceHook{t: t, steps: []replyStep{
+		search, body, {args: []any{"del", "history-key"}, err: failure},
+		search, body, {args: []any{"del", "history-key"}, value: int64(1)},
+		{args: []any{"del", "test:task:task"}, value: int64(1)},
+	}}
 	client.AddHook(hook)
 	s, err := store.New(client, store.WithKeyPrefix("test"))
 	require.NoError(t, err)
-	values, err := s.ListTasks(t.Context(), horai.TaskPage{Limit: 1}, nil)
-	require.NoError(t, err)
-	require.Len(t, values, 2)
-	require.Equal(t, "a", values[0].ID)
-	require.Equal(t, "b", values[1].ID)
+	require.ErrorIs(t, s.DeleteTask(t.Context(), "task"), failure)
+	require.NoError(t, s.DeleteTask(t.Context(), "task"))
 	require.Empty(t, hook.steps)
+}
+
+func TestKeysetCursorEscaping(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ id, literal string }{
+		{"z\n\té", "\"z\\\n\té\""},
+		{`z\"`, `format("%s%s%s", "z", "\\", "\"")`},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
+			client := redis.NewClient(&redis.Options{})
+			t.Cleanup(func() { require.NoError(t, client.Close()) })
+			keys, ids := make([]string, 1000), make([]string, 1000)
+			for i := range keys {
+				keys[i] = fmt.Sprintf("key:%04d", i)
+				ids[i] = fmt.Sprintf("id:%04d", i)
+			}
+			ids[999] = tc.id
+			steps := []replyStep{{args: aggregateArgs("test:idx:tasks:v2", "*", false, ""), value: aggregateReply(2, false, keys, ids, nil)}}
+			for _, key := range keys {
+				steps = append(steps, replyStep{args: []any{"JSON.GET", key, "$"}, err: redis.Nil})
+			}
+			filter := fmt.Sprintf(`(@id > %s || (@id == %s && @__key > "key:0999"))`, tc.literal, tc.literal)
+			steps = append(steps, replyStep{args: aggregateArgs("test:idx:tasks:v2", "*", false, filter), value: []any{int64(0)}})
+			hook := &sequenceHook{t: t, steps: steps}
+			client.AddHook(hook)
+			s, err := store.New(client, store.WithKeyPrefix("test"))
+			require.NoError(t, err)
+			_, err = s.ListTasks(t.Context(), horai.TaskPage{Limit: 1}, nil)
+			require.NoError(t, err)
+			require.Empty(t, hook.steps)
+		})
+	}
 }

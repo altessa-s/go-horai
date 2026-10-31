@@ -35,7 +35,7 @@ func TestSQLHistoryMappingAndDeletion(t *testing.T) {
 			require.Equal(t, want, h)
 			break
 		}
-		rows, err := s.ListHistory(t.Context(), "task", horai.HistoryPage{}, nil)
+		rows, err := s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, nil)
 		require.NoError(t, err)
 		require.Equal(t, []*horai.TaskHistory{want}, rows)
 		require.NoError(t, s.CleanupHistory(t.Context(), 12))
