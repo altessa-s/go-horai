@@ -28,6 +28,7 @@ var historyContracts = []struct {
 	{"HistoryPage", HistoryPage},
 	{"HistoryDelete", HistoryDelete},
 	{"HistoryUnknownFilterField", HistoryUnknownFilterField},
+	{"HistoryIntegerBoundary", HistoryIntegerBoundary},
 }
 
 // RunHistory executes every [horai.HistoryStore] contract as a parallel
@@ -197,4 +198,31 @@ func HistoryUnknownFilterField(t *testing.T, store horai.HistoryStore) {
 	check("empty history")
 	require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: "h1", TaskID: "a", StartedAt: 1, EndedAt: 2}))
 	check("stored history")
+}
+
+// HistoryIntegerBoundary verifies exact integer filtering at floating-point
+// index boundaries. A backend may narrow candidates only without losing matches.
+func HistoryIntegerBoundary(t *testing.T, store horai.HistoryStore) {
+	t.Helper()
+	const boundary int64 = 1 << 53
+	for _, h := range []horai.TaskHistory{
+		{ID: "positive", TaskID: "boundary", StartedAt: 1, EndedAt: 2, DurationMs: boundary + 1},
+		{ID: "negative", TaskID: "boundary", StartedAt: 1, EndedAt: 2, DurationMs: -boundary - 1},
+	} {
+		require.NoError(t, store.AddHistory(t.Context(), &h))
+	}
+	for _, tc := range []struct {
+		op    query.Op
+		bound int64
+		want  string
+	}{
+		{query.Gt, boundary, "positive"},
+		{query.Lt, -boundary, "negative"},
+	} {
+		rows, err := store.ListHistory(t.Context(), "boundary", horai.HistoryPage{Limit: 10},
+			query.Cmp{Field: "durationMs", Op: tc.op, Value: tc.bound})
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, tc.want, rows[0].ID)
+	}
 }

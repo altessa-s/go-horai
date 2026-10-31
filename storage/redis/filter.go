@@ -48,8 +48,10 @@ func pushdown(e query.Expr) string {
 	if !ok {
 		return ""
 	}
-	// RediSearch numbers are doubles; avoid narrowing an integer beyond exact precision.
-	if n > maxExactInteger || n < -maxExactInteger {
+	// RediSearch numbers are doubles. At the exact-integer boundary an
+	// adjacent integer can round to the bound and be excluded by a strict
+	// comparison, so keep boundary comparisons in the client too.
+	if n >= maxExactInteger || n <= -maxExactInteger {
 		return ""
 	}
 	switch c.Op {

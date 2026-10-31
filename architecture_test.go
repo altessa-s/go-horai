@@ -82,7 +82,7 @@ func TestArchitecture(t *testing.T) {
 		f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.ParseComments)
 		require.NoError(t, err, p)
 		allow, ok := table[dir]
-		require.True(t, ok, "add package %s to layers and AGENTS.md", dir)
+		require.True(t, ok, "add package %s to the layers table", dir)
 		seen[dir] = true
 		test := strings.HasSuffix(p, "_test.go")
 		if test && !strings.HasSuffix(f.Name.Name, "_test") {

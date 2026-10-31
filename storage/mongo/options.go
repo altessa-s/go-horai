@@ -5,7 +5,7 @@
 package mongo
 
 //go:generate optgen generate --type=options
-//go:generate sh -c "cat ../../docs/generated-header.txt options_gen.go > .header.tmp && mv .header.tmp options_gen.go"
+//go:generate sh -c "sed -n '1,4p' options.go > .header.tmp && cat options_gen.go >> .header.tmp && mv .header.tmp options_gen.go"
 
 type options struct {
 	tasksCollection   string `optgen:"default=DefaultTasksCollection"`
