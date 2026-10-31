@@ -110,18 +110,20 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 
 // CleanupHistory deletes records strictly before the engine's cutoff and waits for visibility.
 func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
-	syncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{"lightweight_deletes_sync": deleteSyncAllReplicas}))
+	syncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{"lightweight_deletes_sync": deleteSyncAllReplicas,
+		"mutations_sync": deleteSyncAllReplicas}))
 	return s.conn.Exec(syncCtx, "DELETE FROM "+s.table+onCluster(s.opts.cluster)+" WHERE ended_at < ?", cutoff)
 }
 
 // DeleteHistory removes the history of task id with a lightweight DELETE,
 // which marks the rows deleted and purges them as parts merge. The statement
-// sets lightweight_deletes_sync = 2, so it returns only once every replica
+// sets lightweight_deletes_sync and mutations_sync to 2, so it returns only once every replica
 // hides the rows, whatever the session or profile default; the setting
 // requires ClickHouse 24.x.
 func (s *Store) DeleteHistory(ctx context.Context, id string) error {
 	syncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{
 		"lightweight_deletes_sync": deleteSyncAllReplicas,
+		"mutations_sync":           deleteSyncAllReplicas,
 	}))
 	if err := s.conn.Exec(syncCtx, s.deleteStmt, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete scheduler history")

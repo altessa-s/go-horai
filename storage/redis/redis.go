@@ -168,15 +168,7 @@ func (s *Store) searchAll(
 	fn func(redis.Document) (bool, error),
 ) error {
 	for offset := 0; ; offset += searchPageSize {
-		result, err := s.client.FTSearchWithArgs(ctx, index, query,
-			&redis.FTSearchOptions{
-				NoContent:   noContent,
-				Return:      ret,
-				LimitOffset: offset,
-				Limit:       searchPageSize,
-				SortBy:      sortBy,
-			},
-		).Result()
+		result, err := s.search(ctx, index, query, sortBy, noContent, ret, offset, searchPageSize)
 		if err != nil {
 			return err
 		}
@@ -451,6 +443,9 @@ func parseDocJSON[T any](doc redis.Document) (*T, error) {
 	jsonStr, ok := doc.Fields["$"]
 	if !ok {
 		return nil, errors.New("document missing '$' field")
+	}
+	if strings.HasPrefix(strings.TrimSpace(jsonStr), "[") {
+		return unmarshalJSONResult[T](jsonStr)
 	}
 	var v T
 	if err := json.Unmarshal([]byte(jsonStr), &v); err != nil {

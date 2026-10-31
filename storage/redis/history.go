@@ -64,9 +64,7 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 	query := fmt.Sprintf("@taskId:{%s}", escapeTag(taskID))
 
 	// Count only: LIMIT 0 0 returns Total without any document payload.
-	counted, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-		&redis.FTSearchOptions{NoContent: true, LimitOffset: 0, Limit: 0},
-	).Result()
+	counted, err := s.search(ctx, s.historyIndexName(), query, nil, true, nil, 0, 0)
 	if err != nil || counted.Total <= s.opts.maxHistoryPerTask {
 		return
 	}

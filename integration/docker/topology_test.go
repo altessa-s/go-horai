@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-horai"
@@ -75,10 +76,28 @@ func TestMongoReplicaTLS(t *testing.T) {
 			code, _, err := c.Exec(t.Context(), []string{"mongosh", "--tls", "--tlsCAFile", "/tls/ca.pem", "--host", "localhost", "--eval", `rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})`})
 			require.NoError(t, err)
 			require.Zero(t, code)
-			client, err := mongo.Connect(mo.Client().ApplyURI("mongodb://" + containerAddress(t, c, "27017/tcp")).SetDirect(true).SetTLSConfig(config))
+			client, err := mongo.Connect(mo.Client().ApplyURI("mongodb://" + containerAddress(t, c, "27017/tcp")).SetDirect(true).SetReplicaSet("rs0").SetTLSConfig(config))
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
-			require.Eventually(t, func() bool { return client.Ping(t.Context(), nil) == nil }, time.Minute, 100*time.Millisecond)
+			// Ping succeeds before election. Check the same TLS client used by the store.
+			readyCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				var hello struct {
+					Writable bool `bson:"isWritablePrimary"`
+				}
+				err := client.Database("admin").RunCommand(readyCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
+				if err == nil && hello.Writable {
+					break
+				}
+				select {
+				case <-readyCtx.Done():
+					t.Fatalf("MongoDB rs0 did not elect a writable primary within one minute: %v (last hello error: %v)", readyCtx.Err(), err)
+				case <-ticker.C:
+				}
+			}
 			storagetest.Run(t, func(t testing.TB) horai.Store {
 				t.Helper()
 				s, err := mongostore.New(client.Database(namespace()))
