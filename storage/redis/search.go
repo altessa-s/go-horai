@@ -80,7 +80,7 @@ func parseSearchReply(raw any, noContent bool) (redis.FTSearchResult, error) {
 		}
 		doc := redis.Document{ID: id}
 		if !noContent {
-			doc.Fields, err = searchFields(item["extra_attributes"])
+			doc.Fields, err = searchDocumentFields(item)
 			if err != nil {
 				return result, err
 			}
@@ -88,6 +88,23 @@ func parseSearchReply(raw any, noContent bool) (redis.FTSearchResult, error) {
 		result.Docs = append(result.Docs, doc)
 	}
 	return result, nil
+}
+
+func searchDocumentFields(item map[string]any) (map[string]string, error) {
+	var fields map[string]string
+	if attrs := item["extra_attributes"]; attrs != nil {
+		var err error
+		fields, err = searchFields(attrs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// RESP3 can omit attributes for NOCONTENT or RETURN 0. Prefer named
+	// attributes when populated; otherwise retain fields supplied in values.
+	if len(fields) == 0 && item["values"] != nil {
+		return searchFields(item["values"])
+	}
+	return fields, nil
 }
 
 func searchMap(raw any) (map[string]any, error) {
