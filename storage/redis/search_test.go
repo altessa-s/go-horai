@@ -39,6 +39,10 @@ func (h *sequenceHook) ProcessHook(redis.ProcessHook) redis.ProcessHook {
 			return step.err
 		}
 		switch cmd := cmd.(type) {
+		case *redis.FTInfoCmd:
+			cmd.SetVal(step.value.(redis.FTInfoResult))
+		case *redis.FTSearchCmd:
+			cmd.SetVal(step.value.(redis.FTSearchResult))
 		case *redis.Cmd:
 			cmd.SetVal(step.value)
 		case *redis.IntCmd:

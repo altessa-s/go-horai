@@ -9,7 +9,7 @@ The caller owns connections and lifecycle. Operations accept contexts. History c
 Run unit tests with `go test ./...`. Live backend contracts are in `integration/docker` under the `integration_docker` build tag. They fail when a required server cannot start; they do not silently skip.
 
 The task search index is versioned as `{prefix}:idx:tasks:v2` (`taskIndexVersion`); v2 adds `runStartedAt` for unfinished-run recovery.
-`EnsureIndexes` creates it beside an older index. The history schema is unchanged and keeps its existing index name.
+`EnsureIndexes` creates it beside an older index. Initialization waits for both task and history indexes to finish indexing existing documents, including indexes already building; cancellation aborts the wait.
 
 Searches use `FT.AGGREGATE` keysets over raw IDs (history: start time descending, ID descending), with the Redis key as a final tie breaker. Each page seeks strictly beyond the last indexed tuple, then loads JSON bodies individually so each read routes to its own cluster slot.
 Keys deleted before loading are skipped; surviving records count toward pagination lookahead. Deleting earlier entries cannot shift the next page. Search pagination is not a snapshot.

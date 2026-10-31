@@ -192,3 +192,50 @@ func TestUnregisterRetriesCombinedDeletion(t *testing.T) {
 		})
 	}
 }
+
+func TestReregisterExhaustedScheduleStaysCompleted(t *testing.T) {
+	t.Parallel()
+	for _, immediate := range []bool{false, true} {
+		t.Run(fmt.Sprint(immediate), func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				clock := horaitest.NewClock(time.Date(2096, 2, 28, 0, 0, 0, 0, time.UTC))
+				st := store(t)
+				s := engine(t, st, scheduler.WithClock(clock))
+				var calls atomic.Int32
+				cfg := task.Config{ID: "leap", Schedule: "0 0 0 29 2 *", Func: func(context.Context) error { calls.Add(1); return nil }}
+				require.NoError(t, s.Register(t.Context(), cfg))
+				clock.Advance(24 * time.Hour)
+				require.NoError(t, s.Start(t.Context()))
+				time.Sleep(3 * time.Second)
+				synctest.Wait()
+				require.NoError(t, s.Stop(t.Context()))
+				require.Equal(t, int32(1), calls.Load())
+
+				clock.Advance(time.Date(2101, 1, 1, 0, 0, 0, 0, time.UTC).Sub(clock.Now()))
+				parsed, err := schedule.Parse(cfg.Schedule)
+				require.NoError(t, err)
+				require.Equal(t, time.Date(2104, 2, 29, 0, 0, 0, 0, time.UTC), parsed.Next(clock.Now()))
+				restarted := engine(t, st, scheduler.WithClock(clock))
+				cfg.RunOnStart = immediate
+				require.NoError(t, restarted.Register(t.Context(), cfg))
+				state, err := restarted.Task(t.Context(), cfg.ID)
+				require.NoError(t, err)
+				require.Equal(t, horai.TaskStatusCompleted, state.Status)
+				require.Zero(t, state.NextRunAt)
+				require.NoError(t, restarted.Start(t.Context()))
+				time.Sleep(3 * time.Second)
+				synctest.Wait()
+				require.Equal(t, int32(1), calls.Load())
+				require.NoError(t, restarted.Stop(t.Context()))
+
+				cfg.Schedule, cfg.RunOnStart = "@hourly", false
+				require.NoError(t, restarted.Register(t.Context(), cfg))
+				state, err = restarted.Task(t.Context(), cfg.ID)
+				require.NoError(t, err)
+				require.Equal(t, horai.TaskStatusActive, state.Status)
+				require.Equal(t, clock.Now().Add(time.Hour).Unix(), state.NextRunAt)
+			})
+		})
+	}
+}

@@ -22,7 +22,7 @@ const taskIndexVersion = "v2"
 // historyIndexVersion adds sortable identity fields for document-free traversal.
 const historyIndexVersion = "v2"
 
-// indexPollInterval is how often backfillNextRunAt re-checks an index that is
+// indexPollInterval is how often waitForIndex re-checks an index that is
 // still indexing existing documents.
 const indexPollInterval = 50 * time.Millisecond
 
@@ -64,19 +64,8 @@ var errBackfillStalled = errors.New("next_run_at backfill made no progress")
 // already compares equal.
 func (s *Store) backfillNextRunAt(ctx context.Context) error {
 	idx := s.taskIndexName()
-	for {
-		info, err := s.client.FTInfo(ctx, idx).Result()
-		if err != nil {
-			return err
-		}
-		if info.Indexing == 0 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(indexPollInterval):
-		}
+	if err := s.waitForIndex(ctx, idx); err != nil {
+		return err
 	}
 
 	byID := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
@@ -108,6 +97,25 @@ func (s *Store) backfillNextRunAt(ctx context.Context) error {
 			return errBackfillStalled
 		default:
 			idle = ids
+		}
+	}
+}
+
+// waitForIndex waits for existing documents to become searchable, including
+// when an earlier initialization left the index building in the background.
+func (s *Store) waitForIndex(ctx context.Context, idx string) error {
+	for {
+		info, err := s.client.FTInfo(ctx, idx).Result()
+		if err != nil {
+			return err
+		}
+		if info.Indexing == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(indexPollInterval):
 		}
 	}
 }
