@@ -201,7 +201,8 @@ func TestClickHouse(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, conn.Close()) })
 			storagetest.RunHistory(t, func(t testing.TB) horai.HistoryStore {
 				t.Helper()
-				s, err := chstore.New(conn, chstore.WithTableName(namespace()))
+				// Contracts use fixed historical timestamps; automatic TTL would erase their fixtures.
+				s, err := chstore.New(conn, chstore.WithTableName(namespace()), chstore.WithTTL(0))
 				require.NoError(t, err)
 				require.NoError(t, s.EnsureSchema(t.Context()))
 				return s
