@@ -92,7 +92,8 @@ func New(client redis.UniversalClient, opts ...Option) (*Store, error) {
 
 // EnsureIndexes creates the RediSearch indexes required by [Store] for
 // task and history queries. It is idempotent: indexes that already exist are
-// left as they are. Call this method once during application startup
+// left as they are. It waits for both indexes to finish indexing existing
+// documents, respecting context cancellation. Call it during application startup
 // before invoking any query methods ([Store.Tasks], [Store.ListTasks],
 // [Store.History], [Store.ListHistory], or [Store.CleanupHistory]).
 //
@@ -110,6 +111,9 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}
 	if err := s.ensureHistoryIndex(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "ensure history index")
+	}
+	if err := s.waitForIndex(ctx, s.historyIndexName()); err != nil {
+		return coreerrs.WrapOperation(err, "wait for history index")
 	}
 	if err := s.backfillNextRunAt(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "backfill task next_run_at")

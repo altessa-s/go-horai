@@ -31,6 +31,10 @@ import (
 // strings are validated against the cron parser on registration. If Priority is
 // unset, it defaults to [schedtask.PriorityNormal].
 //
+// Re-registering a completed periodic task with the same schedule keeps it
+// completed, even if the parser can now find a future activation. Changing its
+// schedule permits a new run.
+//
 // Re-registering a [horai.TaskStatusCompleted] one-shot task with the RunAt it
 // completed for keeps it completed, so every instance or restart that registers
 // the same one-shot task does not run it again. Only a different RunAt resets
@@ -242,6 +246,10 @@ func (s *Scheduler) mergeRegistered(
 		}
 	}
 	switch {
+	case existing.Status == horai.TaskStatusCompleted && !isOneShot && !existing.OneShot && existing.Schedule == cfg.Schedule:
+		// Exhaustion is terminal for an unchanged periodic schedule.
+		state.Status = horai.TaskStatusCompleted
+		state.NextRunAt = existing.NextRunAt
 	case existing.Status == horai.TaskStatusCompleted && isOneShot && existing.OneShot && completedFor(existing, runAt):
 		// Same occurrence as the one already executed: stay completed.
 		state.Status = horai.TaskStatusCompleted
