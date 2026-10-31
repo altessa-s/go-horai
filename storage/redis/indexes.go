@@ -15,6 +15,10 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
+// taskIndexVersion changes whenever the task search schema changes. v2 adds
+// runStartedAt so existing namespaces receive an independent unfinished-run index.
+const taskIndexVersion = "v2"
+
 // indexPollInterval is how often backfillNextRunAt re-checks an index that is
 // still indexing existing documents.
 const indexPollInterval = 50 * time.Millisecond

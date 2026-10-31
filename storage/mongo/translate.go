@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"fmt"
 	"regexp"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -12,32 +13,34 @@ import (
 	"github.com/altessa-s/go-horai/query"
 )
 
-func column(f query.Field) string {
+func column(f query.Field) (string, error) {
 	switch f {
 	case "id":
-		return fieldId
+		return fieldId, nil
 	case "taskId":
-		return fieldTaskId
+		return fieldTaskId, nil
 	case "runId":
-		return "run_id"
+		return "run_id", nil
 	case "startedAt":
-		return fieldStartedAt
+		return fieldStartedAt, nil
 	case "endedAt":
-		return fieldEndedAt
+		return fieldEndedAt, nil
 	case "durationMs":
-		return "duration_ms"
+		return "duration_ms", nil
 	case "lastRunAt":
-		return "last_run_at"
+		return "last_run_at", nil
 	case "nextRunAt":
-		return fieldNextRunAt
+		return fieldNextRunAt, nil
 	case "skipNextRun":
-		return "skip_next_run"
+		return "skip_next_run", nil
 	case "disableHistory":
-		return "disable_history"
+		return "disable_history", nil
 	case "oneShot":
-		return "one_shot"
+		return "one_shot", nil
+	case "description", "schedule", "status", "priority", "failures", "unmanaged", "success", "error":
+		return string(f), nil
 	}
-	return string(f)
+	return "", fmt.Errorf("%w: field %q", query.ErrInvalid, f)
 }
 
 func translate(e query.Expr, fields []query.Field) (bson.M, error) {
@@ -64,7 +67,8 @@ func translate(e query.Expr, fields []query.Field) (bson.M, error) {
 		case query.Not:
 			return bson.M{"$not": bson.A{walk(v.Expr)}}
 		case query.Cmp:
-			col := "$" + column(v.Field)
+			name, _ := column(v.Field) // Validate rejects fields outside the closed mapping.
+			col := "$" + name
 			if v.Op == query.Prefix || v.Op == query.Contains {
 				value, _ := v.Value.(string) // Validated above.
 				pattern := regexp.QuoteMeta(value)

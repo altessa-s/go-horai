@@ -6,13 +6,17 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/altessa-s/go-horai/schedule"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	horai "github.com/altessa-s/go-horai"
+	schedtask "github.com/altessa-s/go-horai/task"
 )
 
 // executeTask runs a single task and records the result.
@@ -101,7 +105,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	s.metrics.TaskDispatched(state.ID, task.config.Priority)
 	s.metrics.RunningChanged(int(s.executions.Add(1)))
 	defer func() { s.metrics.RunningChanged(int(s.executions.Add(-1))) }()
-	execErr := invoke(execCtx, task.config.Func)
+	execErr := s.invoke(execCtx, task.config.Func)
 
 	endTime := s.opts.clock.Now()
 	duration := endTime.Sub(startTime)
@@ -228,4 +232,14 @@ func (s *Scheduler) cleanup() {
 	if err := s.history.CleanupHistory(ctx, s.opts.clock.Now().Add(-s.opts.historyRetention).Unix()); err != nil {
 		s.logger.ErrorContext(ctx, "failed to cleanup history", slog.Any("error", err))
 	}
+}
+
+func (s *Scheduler) invoke(ctx context.Context, fn schedtask.Func) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			s.logger.ErrorContext(ctx, "task panicked", slog.String("panic_type", fmt.Sprintf("%T", p)), slog.String("stack", string(debug.Stack())))
+			err = errors.New("task panicked")
+		}
+	}()
+	return fn(ctx)
 }

@@ -6,46 +6,25 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
 	horai "github.com/altessa-s/go-horai"
-	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// runAbandoned reports whether state carries an unfinished run that stale
-// recovery may reset at now (Unix seconds). A run of this instance is abandoned
-// as soon as it is no longer executing here. Any other run is abandoned only
-// once its lease has expired. A lease bound to the run (RunLeaseID ==
-// LastRunID), persisted by the owner with the claim and its renewals, is
-// authoritative, so instances with different stale timeouts agree. A run
-// without a lease of its own — claimed by a release without leases, which
-// leaves an earlier run's lease in place — falls back to its start plus this
-// instance's own lease. An unbound lease (RunLeaseID empty), written by a
-// lease-aware build that did not bind leases yet, may belong to this run or an
-// earlier one, so the later of both deadlines applies.
+// runAbandoned checks process-local ownership first, then the run-bound lease.
 func (s *Scheduler) runAbandoned(state *horai.TaskState, now, leaseSec int64) bool {
-	if state.RunStartedAt == 0 && state.Status != horai.TaskStatusRunning {
+	if state.RunStartedAt == 0 {
 		return false
 	}
-	if state.LastRunID != "" && runOwner(state.LastRunID) == s.opts.instanceID {
+	if runOwner(state.LastRunID) == s.opts.instanceID {
 		_, live := s.liveRuns.Load(state.LastRunID)
 		return !live
 	}
-	if state.RunLeaseUntil != 0 && state.RunLeaseID != "" && state.RunLeaseID == state.LastRunID {
+	if state.RunLeaseID == state.LastRunID && state.RunLeaseUntil != 0 {
 		return now > state.RunLeaseUntil
 	}
-	since := state.RunStartedAt
-	if since == 0 {
-		// States persisted before RunStartedAt was introduced.
-		since = state.UpdatedAt
-	}
-	deadline := since + leaseSec
-	if state.RunLeaseID == "" {
-		deadline = max(deadline, state.RunLeaseUntil)
-	}
-	return now > deadline
+	return now > state.RunStartedAt+leaseSec
 }
 
 // recoverStaleTasks resets abandoned runs (see [Scheduler.runAbandoned]): those
@@ -113,9 +92,6 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 	}
 
 	since := state.RunStartedAt
-	if since == 0 {
-		since = state.UpdatedAt
-	}
 	staleDuration := time.Duration(now.Unix()-since) * time.Second
 
 	if state.Status == horai.TaskStatusRunning {
@@ -157,11 +133,20 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 	}
 }
 
-func invoke(ctx context.Context, fn schedtask.Func) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = errors.New("task panicked")
+// fetchStates materializes every unfinished run in a single storage
+// round-trip, bounded by [WithStorageTimeout]. The slice is materialized before
+// the caller processes it so recovery never holds the storage iterator open
+// while performing writes (which would deadlock the memory backend).
+func (s *Scheduler) fetchStates(ctx context.Context, capacity int) ([]*horai.TaskState, error) {
+	opCtx, cancel := s.storageCtx(ctx)
+	defer cancel()
+
+	states := make([]*horai.TaskState, 0, capacity)
+	for state, err := range s.storage.UnfinishedRuns(opCtx) {
+		if err != nil {
+			return nil, err
 		}
-	}()
-	return fn(ctx)
+		states = append(states, state)
+	}
+	return states, nil
 }

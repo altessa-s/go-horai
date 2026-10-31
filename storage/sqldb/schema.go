@@ -38,7 +38,10 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 			return coreerrs.WrapOperation(err, "create scheduler schema")
 		}
 	}
-	return s.mysqlAddColumns(ctx)
+	if err := s.mysqlAddColumns(ctx); err != nil {
+		return err
+	}
+	return s.mysqlEnsureUnfinishedIndex(ctx)
 }
 
 // addedColumn is a tasks column introduced after the first release of the
@@ -196,8 +199,7 @@ func (s *Store) mysqlSchema() []string {
   created_at      BIGINT          NOT NULL DEFAULT 0,
   updated_at      BIGINT          NOT NULL DEFAULT 0,
   revision        BIGINT          NOT NULL DEFAULT 0,
-  INDEX ` + s.dialect.IndexName(s.tasksName, "due") + ` (status, next_run_at),
- INDEX ` + s.dialect.IndexName(s.tasksName, "unfinished") + ` (run_started_at)
+  INDEX ` + s.dialect.IndexName(s.tasksName, "due") + ` (status, next_run_at)
 ) ENGINE=InnoDB`,
 		`CREATE TABLE IF NOT EXISTS ` + s.historyTable + ` (
   id          VARBINARY(1020) NOT NULL PRIMARY KEY,
@@ -215,3 +217,37 @@ func (s *Store) mysqlSchema() []string {
 }
 
 const bigintZero = "BIGINT NOT NULL DEFAULT 0"
+
+// MySQL lacks CREATE INDEX IF NOT EXISTS. Probe before creating and recheck
+// after an error to tolerate a concurrent EnsureSchema creating the index.
+func (s *Store) mysqlEnsureUnfinishedIndex(ctx context.Context) error {
+	exists := func() (bool, error) {
+		var schema any
+		if s.tasksSchema != "" {
+			schema = s.tasksSchema
+		}
+		const query = "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE())" +
+			" AND TABLE_NAME = ? AND INDEX_NAME = ?"
+		rows, err := s.db.QueryContext(ctx, query, schema, s.tasksName, strings.Trim(s.dialect.IndexName(s.tasksName, "unfinished"), "`"))
+		if err != nil {
+			return false, err
+		}
+		defer func() { _ = rows.Close() }()
+		found := rows.Next()
+		return found, rows.Err()
+	}
+	found, err := exists()
+	if err != nil {
+		return coreerrs.WrapOperation(err, "read unfinished index")
+	}
+	if found {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, "CREATE INDEX "+s.dialect.IndexName(s.tasksName, "unfinished")+" ON "+s.tasksTable+" (run_started_at)")
+	if err != nil {
+		if found, checkErr := exists(); checkErr == nil && found {
+			return nil
+		}
+	}
+	return coreerrs.WrapOperation(err, "create unfinished index")
+}

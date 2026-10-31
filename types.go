@@ -23,12 +23,12 @@ const (
 	// periodic tasks.
 	TaskStatusActive TaskStatus = 1
 	// TaskStatusPaused indicates the task has been paused via
-	// [Scheduler.PauseTask] and will not execute until [Scheduler.ResumeTask]
+	// the scheduler Pause method and will not execute until Resume
 	// is called.
 	TaskStatusPaused TaskStatus = 2
 	// TaskStatusDisabled indicates the task has been disabled via
-	// [Scheduler.DisableTask]. Disabled tasks cannot be triggered manually
-	// either. Use [Scheduler.EnableTask] to re-activate.
+	// the scheduler Disable method. Disabled tasks cannot be triggered manually
+	// either. Use Enable to re-activate.
 	TaskStatusDisabled TaskStatus = 3
 	// TaskStatusRunning indicates the task's function is currently executing.
 	// The scheduler transitions a task to this status just before invoking its
@@ -135,7 +135,7 @@ type TaskSummary struct {
 	Failures       int32         `json:"failures"`
 }
 
-// TaskFence is the compare-and-swap precondition of Storage.ReplaceTaskIf: the
+// TaskFence is the compare-and-swap precondition of TaskStore.ReplaceTaskIf: the
 // run-ownership fields and revision a writer observed when it read the task.
 type TaskFence struct {
 	Status       TaskStatus

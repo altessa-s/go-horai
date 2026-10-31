@@ -11,7 +11,7 @@ import (
 
 // Registrar is the interface accepted by subsystems that need to register
 // scheduled or one-shot tasks without importing the concrete scheduler
-// implementation. It is satisfied by *service/scheduler.Scheduler.
+// implementation. It is satisfied by *scheduler.Scheduler.
 //
 // Implementations must be safe for concurrent use by multiple goroutines.
 type Registrar interface {

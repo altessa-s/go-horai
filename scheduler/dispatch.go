@@ -77,7 +77,7 @@ func (s *Scheduler) run() {
 // tick processes all tasks and executes those that are due.
 // Tasks are processed in priority order: Critical > High > Normal > Low.
 //
-// A single Tasks() call fetches all persisted states, which are then
+// A single DueTasks call fetches eligible states, which are then
 // cross-referenced with the in-memory registration map. This avoids
 // N individual GetTask calls per tick for networked backends.
 func (s *Scheduler) tick() {
@@ -166,24 +166,6 @@ func (s *Scheduler) tick() {
 
 	// Dispatch pending tasks respecting concurrency limits
 	s.dispatchPending(pending)
-}
-
-// fetchStates materializes every persisted task state in a single storage
-// round-trip, bounded by [WithStorageTimeout]. The slice is materialized before
-// the caller processes it so the tick never holds the storage iterator open
-// while performing writes (which would deadlock the memory backend).
-func (s *Scheduler) fetchStates(ctx context.Context, capacity int) ([]*horai.TaskState, error) {
-	opCtx, cancel := s.storageCtx(ctx)
-	defer cancel()
-
-	states := make([]*horai.TaskState, 0, capacity)
-	for state, err := range s.storage.UnfinishedRuns(opCtx) {
-		if err != nil {
-			return nil, err
-		}
-		states = append(states, state)
-	}
-	return states, nil
 }
 
 // fetchDueStates materializes the task states eligible for dispatch at now in

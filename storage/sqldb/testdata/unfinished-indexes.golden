@@ -1,0 +1,2 @@
+CREATE INDEX IF NOT EXISTS "scheduler_tasks_unfinished_idx" ON "scheduler_tasks" (run_started_at) WHERE run_started_at <> 0
+CREATE INDEX `scheduler_tasks_unfinished_idx` ON `scheduler_tasks` (run_started_at)
