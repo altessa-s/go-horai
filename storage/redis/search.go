@@ -11,7 +11,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const searchDialect = 2
+const (
+	searchDialect  = 2
+	sortAscending  = "ASC"
+	sortDescending = "DESC"
+)
 
 // search requests IDs only: cluster RediSearch does not return JSON bodies.
 func (s *Store) search(
@@ -21,9 +25,9 @@ func (s *Store) search(
 	args := make([]any, 0, 4+3*len(sortBy)+6)
 	args = append(args, "FT.SEARCH", index, query, "NOCONTENT")
 	for _, sort := range sortBy {
-		direction := "ASC"
+		direction := sortAscending
 		if sort.Desc {
-			direction = "DESC"
+			direction = sortDescending
 		}
 		args = append(args, "SORTBY", sort.FieldName, direction)
 	}

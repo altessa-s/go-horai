@@ -19,6 +19,9 @@ import (
 // runStartedAt so existing namespaces receive an independent unfinished-run index.
 const taskIndexVersion = "v2"
 
+// historyIndexVersion adds sortable identity fields for document-free traversal.
+const historyIndexVersion = "v2"
+
 // indexPollInterval is how often backfillNextRunAt re-checks an index that is
 // still indexing existing documents.
 const indexPollInterval = 50 * time.Millisecond
@@ -159,7 +162,8 @@ func (s *Store) ensureHistoryIndex(ctx context.Context) error {
 			NoFreqs:  true,
 			NoFields: true,
 		},
-		&redis.FieldSchema{FieldName: "$.task_id", As: "taskId", FieldType: redis.SearchFieldTypeTag},
+		&redis.FieldSchema{FieldName: "$.task_id", As: "taskId", FieldType: redis.SearchFieldTypeTag, Sortable: true, UNF: true},
+		&redis.FieldSchema{FieldName: "$.id", As: "id", FieldType: redis.SearchFieldTypeTag, Sortable: true, UNF: true},
 		&redis.FieldSchema{FieldName: "$.run_id", As: "runId", FieldType: redis.SearchFieldTypeTag},
 		&redis.FieldSchema{FieldName: "$.started_at", As: startedAtField, FieldType: redis.SearchFieldTypeNumeric, Sortable: true},
 		&redis.FieldSchema{FieldName: "$.ended_at", As: "endedAt", FieldType: redis.SearchFieldTypeNumeric, Sortable: true},

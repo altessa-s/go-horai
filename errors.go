@@ -36,7 +36,7 @@ var ErrTaskDisabled = errors.New("task is disabled")
 
 // ErrTaskCompleted is returned by the scheduler Pause method, the scheduler Resume method,
 // the scheduler Disable method, the scheduler Enable method, and the scheduler Trigger method when the target task has
-// [TaskStatusCompleted], which indicates a one-shot task that has already executed.
+// [TaskStatusCompleted], indicating a finished one-shot task or an exhausted schedule.
 var ErrTaskCompleted = errors.New("task is completed")
 
 // ErrTaskAlreadyDispatched is returned by the scheduler Trigger method when the task
@@ -63,3 +63,9 @@ var ErrConcurrentUpdate = errors.New("task was modified concurrently")
 // ErrInvalidRunClaim is returned by [RunStore.ClaimRun] implementations, via
 // [RunClaim.Validate], for a claim whose run could never be owned afterwards.
 var ErrInvalidRunClaim = errors.New("invalid run claim")
+
+// ErrConcurrencyLimit indicates that a manual trigger could not acquire a dynamic slot.
+var ErrConcurrencyLimit = errors.New("concurrency limit reached")
+
+// ErrInvalidArgument indicates an invalid public storage argument.
+var ErrInvalidArgument = errors.New("invalid argument")

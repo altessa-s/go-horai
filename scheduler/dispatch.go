@@ -208,7 +208,7 @@ func (s *Scheduler) applySkip(now time.Time, id string, due horai.TaskFence) {
 		freshState.Status = horai.TaskStatusCompleted
 		freshState.NextRunAt = 0
 	} else {
-		freshState.NextRunAt = s.calculateNextRun(ctx, now, freshState).Unix()
+		s.advanceSchedule(ctx, now, freshState)
 	}
 	freshState.UpdatedAt = now.Unix()
 

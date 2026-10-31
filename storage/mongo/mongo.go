@@ -237,16 +237,14 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 
 // DeleteTask removes the task document and all associated history entries for
 // the given task ID. Deleting a non-existent task is not considered an error.
-// If the task deletion succeeds but history cleanup fails, the error from the
-// history deletion is returned.
+// History is deleted first so a cleanup failure leaves the task retryable.
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	// Delete task state
-	if _, err := s.tasks.DeleteOne(ctx, bson.M{fieldId: id}); err != nil {
+	// Delete associated history before removing the registration.
+	if _, err := s.history.DeleteMany(ctx, bson.M{fieldTaskId: id}); err != nil {
 		return err
 	}
 
-	// Delete associated history
-	_, err := s.history.DeleteMany(ctx, bson.M{fieldTaskId: id})
+	_, err := s.tasks.DeleteOne(ctx, bson.M{fieldId: id})
 	return err
 }
 
@@ -381,6 +379,9 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 // is non-nil the filter AST is translated to a bson.M and merged into the
 // query so MongoDB evaluates it server-side.
 func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*horai.TaskState, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	query := bson.M{}
 	if pg.AfterID != "" {
 		query[fieldId] = bson.M{"$gt": pg.AfterID}
@@ -421,6 +422,9 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*
 // after the cursor position in pg. When f is non-nil the filter AST is
 // translated to a bson.M and merged into the query for server-side evaluation.
 func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.HistoryPage, f q.Expr) ([]*horai.TaskHistory, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	query := bson.M{fieldTaskId: taskID}
 	if pg.AfterID != "" {
 		// Compound cursor seek: entries with start_time < cursor, OR same
@@ -485,6 +489,11 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 		oneShot,
 		bson.M{opEq: bson.A{bson.M{opIfNull: bson.A{"$run_at", 0}}, result.RunAt}},
 	}}
+	completed := bson.M{"$or": bson.A{executed, bson.M{opAnd: bson.A{
+		bson.M{opEq: bson.A{oneShot, false}},
+		bson.M{opEq: bson.A{"$schedule", bson.M{opLiteral: result.Schedule}}},
+		result.NextRunAt == 0,
+	}}}}
 	var failures any = 0
 	if !result.Success {
 		failures = bson.M{"$add": bson.A{bson.M{opIfNull: bson.A{"$failures", 0}}, 1}}
@@ -492,7 +501,7 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 	update := mongo.Pipeline{bson.D{{Key: opSet, Value: bson.M{
 		// A finished one-shot occurrence is terminal whatever the status; otherwise
 		// a running task returns to active unless management changed its status.
-		fieldStatus: bson.M{opCond: bson.A{executed, horai.TaskStatusCompleted,
+		fieldStatus: bson.M{opCond: bson.A{completed, horai.TaskStatusCompleted,
 			bson.M{opCond: bson.A{
 				bson.M{opEq: bson.A{"$status", horai.TaskStatusRunning}}, horai.TaskStatusActive, "$status",
 			}},

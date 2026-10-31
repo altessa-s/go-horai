@@ -135,6 +135,9 @@ func (s *Store) DeleteHistory(ctx context.Context, id string) error {
 // cursor, ordered by StartedAt descending and ID descending. A non-nil f is
 // evaluated by ClickHouse.
 func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.HistoryPage, f query.Expr) ([]*horai.TaskHistory, error) {
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
+	}
 	stmt, args, err := s.pageStatement(taskID, pg, f)
 	if err != nil {
 		return nil, err

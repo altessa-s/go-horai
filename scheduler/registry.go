@@ -7,6 +7,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"time"
@@ -61,6 +62,9 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 	defer lock.Unlock()
 
 	now := s.opts.clock.Now()
+	if !isOneShot && sched.Next(now).IsZero() {
+		return fmt.Errorf("%w: schedule has no future activation", schedule.ErrInvalid)
+	}
 	nextRun := firstRun(cfg, sched, now)
 
 	nowUnix := now.Unix()

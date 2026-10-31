@@ -123,8 +123,8 @@ func (m *Store) DeleteTask(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.tasks, id)
 	delete(m.history, id)
+	delete(m.tasks, id)
 
 	return nil
 }
@@ -270,9 +270,10 @@ func cloneTaskState(state *horai.TaskState) *horai.TaskState {
 // When f is non-nil, only tasks matching the filter are included; a filter
 // naming a field outside [horai.TaskFilterFields] fails whatever is stored.
 func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([]*horai.TaskState, error) {
-	if pg.Limit < 0 || pg.Limit > 10000 {
-		return nil, errors.New("invalid page limit")
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
 	}
+
 	if f != nil {
 		if err := query.Validate(f, query.TaskFields()); err != nil {
 			return nil, err
@@ -324,9 +325,10 @@ func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([
 // naming a field outside [horai.HistoryFilterFields] fails whatever is
 // stored.
 func (m *Store) ListHistory(_ context.Context, taskID string, pg horai.HistoryPage, f query.Expr) ([]*horai.TaskHistory, error) {
-	if pg.Limit < 0 || pg.Limit > 10000 {
-		return nil, errors.New("invalid page limit")
+	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
+		return nil, err
 	}
+
 	if f != nil {
 		if err := query.Validate(f, query.HistoryFields()); err != nil {
 			return nil, err
@@ -426,7 +428,7 @@ func (m *Store) FinishRun(_ context.Context, id, runID string, result horai.RunR
 	// terminal, even if it was paused, disabled or resumed while it ran.
 	executed := state.OneShot && state.RunAt == result.RunAt
 	switch {
-	case executed:
+	case executed || (!state.OneShot && state.Schedule == result.Schedule && result.NextRunAt == 0):
 		state.Status = horai.TaskStatusCompleted
 		state.NextRunAt = 0
 	case state.Status == horai.TaskStatusRunning:

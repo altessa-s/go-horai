@@ -14,6 +14,7 @@ import (
 )
 
 // TaskStore owns registration and fenced management writes. Reads return independent copies.
+// DeleteTask deletes history before the task, leaving the task retryable on cleanup failure.
 type TaskStore interface {
 	GetTask(context.Context, string) (*TaskState, error)
 	CreateTask(context.Context, *TaskState) (bool, error)
@@ -28,7 +29,8 @@ type TaskStore interface {
 // nonempty matching LastRunID and nonzero RunStartedAt, regardless of status.
 // FinishRun preserves concurrent configuration and management changes. A matching one-shot
 // occurrence completes regardless of status; otherwise running becomes active. NextRunAt
-// changes only for an unchanged periodic schedule. Finishing clears the lease and start,
+// changes only for an unchanged periodic schedule; a zero result completes that schedule.
+// Finishing clears the lease and start,
 // updates LastRunAt and UpdatedAt, and resets failures on success or increments on failure.
 type RunStore interface {
 	DueTasks(context.Context, int64) iter.Seq2[*TaskState, error]
@@ -73,12 +75,14 @@ type HistoryCursor struct {
 }
 
 // TaskPage selects an ID-ascending page, plus one lookahead item.
+// Limit must be in [1, MaxStorePageLimit]; stores otherwise return ErrInvalidArgument.
 type TaskPage struct {
 	AfterID string
 	Limit   int64
 }
 
 // HistoryPage selects a descending history page, plus one lookahead item.
+// Limit must be in [1, MaxStorePageLimit]; stores otherwise return ErrInvalidArgument.
 type HistoryPage struct {
 	AfterStartedAt int64
 	AfterID        string

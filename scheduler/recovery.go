@@ -97,7 +97,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 	if state.Status == horai.TaskStatusRunning {
 		state.Status = horai.TaskStatusActive
 		if !state.OneShot && state.Schedule != "" {
-			state.NextRunAt = s.calculateNextRun(opCtx, now, state).Unix()
+			s.advanceSchedule(opCtx, now, state)
 		} else if state.OneShot {
 			// Retry the abandoned occurrence now — unless the task was
 			// re-registered for a later one during the run, which keeps its time.

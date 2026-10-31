@@ -54,7 +54,7 @@ func (s *Scheduler) updateTask(ctx context.Context, id string, mutate func(*hora
 // execution will complete normally.
 //
 // Returns [horai.ErrTaskNotFound] if no task with the given ID exists in storage,
-// [horai.ErrTaskCompleted] if the task is a completed one-shot, or
+// [horai.ErrTaskCompleted] if the task is a completed task, or
 // [horai.ErrTaskUnmanaged] if the task has its Unmanaged flag set.
 func (s *Scheduler) Pause(ctx context.Context, id string) error {
 	return s.updateTask(ctx, id, func(state *horai.TaskState) error {
@@ -78,7 +78,7 @@ func (s *Scheduler) Pause(ctx context.Context, id string) error {
 // whose scheduled time has already passed, the next run is set to now.
 //
 // Returns [horai.ErrTaskNotFound] if no task with the given ID exists in storage,
-// [horai.ErrTaskCompleted] if the task is a completed one-shot, or [horai.ErrTaskNotPaused]
+// [horai.ErrTaskCompleted] if the task is a completed task, or [horai.ErrTaskNotPaused]
 // if the task's current status is not [horai.TaskStatusPaused].
 func (s *Scheduler) Resume(ctx context.Context, id string) error {
 	return s.updateTask(ctx, id, func(state *horai.TaskState) error {
@@ -98,7 +98,7 @@ func (s *Scheduler) Resume(ctx context.Context, id string) error {
 				state.NextRunAt = now.Unix()
 			}
 		} else {
-			state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
+			s.advanceSchedule(ctx, now, state)
 		}
 		state.UpdatedAt = now.Unix()
 
@@ -110,11 +110,11 @@ func (s *Scheduler) Resume(ctx context.Context, id string) error {
 // scheduled and manual execution (via [Scheduler.Trigger]). Use
 // [Scheduler.Enable] to re-activate. Unlike [Scheduler.Pause],
 // disabling is allowed in any status except [horai.TaskStatusCompleted]: a completed
-// one-shot task is terminal, and disabling then enabling it must not run it
+// task is terminal, and disabling then enabling it must not run it
 // again.
 //
 // Returns [horai.ErrTaskNotFound] if no task with the given ID exists in storage,
-// [horai.ErrTaskCompleted] if the task is a completed one-shot, or
+// [horai.ErrTaskCompleted] if the task is a completed task, or
 // [horai.ErrTaskUnmanaged] if the task has its Unmanaged flag set.
 func (s *Scheduler) Disable(ctx context.Context, id string) error {
 	return s.updateTask(ctx, id, func(state *horai.TaskState) error {
@@ -138,7 +138,7 @@ func (s *Scheduler) Disable(ctx context.Context, id string) error {
 // whose scheduled time has already passed, the next run is set to now.
 //
 // Returns [horai.ErrTaskNotFound] if no task with the given ID exists in storage,
-// [horai.ErrTaskCompleted] if the task is a completed one-shot, or
+// [horai.ErrTaskCompleted] if the task is a completed task, or
 // [horai.ErrTaskNotDisabled] if the task's current status is not [horai.TaskStatusDisabled].
 func (s *Scheduler) Enable(ctx context.Context, id string) error {
 	return s.updateTask(ctx, id, func(state *horai.TaskState) error {
@@ -158,7 +158,7 @@ func (s *Scheduler) Enable(ctx context.Context, id string) error {
 				state.NextRunAt = now.Unix()
 			}
 		} else {
-			state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
+			s.advanceSchedule(ctx, now, state)
 		}
 		state.UpdatedAt = now.Unix()
 
@@ -217,11 +217,13 @@ func (s *Scheduler) History(ctx context.Context, id string) iter.Seq2[*horai.Tas
 // Trigger manually triggers immediate execution of a task in a background
 // goroutine. The task's regular schedule is not affected; it will still fire at
 // its next scheduled time. The triggered execution respects concurrency limits
-// and priority-based slot allocation.
+// and priority-based slot allocation. Dynamic admission returns
+// [horai.ErrConcurrencyLimit] immediately when capacity is unavailable.
+// Critical tasks bypass concurrency limits.
 //
 // Returns [horai.ErrTaskNotRegistered] if the task ID is not in the in-memory map,
 // [horai.ErrTaskNotFound] if the task state does not exist in [horai.Store],
-// [horai.ErrTaskCompleted] if the task is a completed one-shot,
+// [horai.ErrTaskCompleted] if the task is a completed task,
 // [horai.ErrTaskDisabled] if the task's status is [horai.TaskStatusDisabled], or
 // [horai.ErrTaskAlreadyDispatched] if a dispatch for this task is already queued or
 // running.
@@ -271,6 +273,15 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	if s.stopping || !s.isRunning.Load() {
 		task.release()
 		return horai.ErrNotReady
+	}
+	if _, dynamic := s.slots.(*dynamicSlots); dynamic {
+		release, admitted := s.slots.acquire(ctx, task.config.Priority, true)
+		if !admitted {
+			task.release()
+			return horai.ErrConcurrencyLimit
+		}
+		s.wg.Go(func() { defer task.release(); defer release(); s.executeTask(s.stopCtx, task, state) })
+		return nil
 	}
 	s.wg.Go(func() {
 		defer task.release()
