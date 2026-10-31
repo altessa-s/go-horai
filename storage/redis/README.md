@@ -10,3 +10,6 @@ Run unit tests with `go test ./...`. Live backend contracts are in `integration/
 
 The task search index is versioned as `{prefix}:idx:tasks:v2` (`taskIndexVersion`); v2 adds `runStartedAt` for unfinished-run recovery.
 `EnsureIndexes` creates it beside an older index. The history schema is unchanged and keeps its existing index name.
+
+Searches request IDs with `FT.SEARCH NOCONTENT`, then load JSON bodies individually in search order so each read routes to its own cluster slot.
+Keys deleted before loading are skipped; surviving records count toward pagination lookahead. Search pagination is not a snapshot.

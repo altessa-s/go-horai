@@ -146,8 +146,9 @@ func (s *Store) historyIndexName() string {
 }
 
 // searchAll walks every document matching query, one page at a time, calling
-// fn for each. Return false from fn to stop early. ret, when non-nil, limits
-// each document to those fields (noContent must then be false).
+// fn for each. Return false from fn to stop early. Unless noContent is set,
+// bodies are loaded individually so each JSON.GET routes to its own cluster slot.
+// Deleted keys are skipped; only loaded records count toward caller lookahead.
 //
 // FT.SEARCH answers a single page per call and reports the full match count in
 // Total. Issuing one request with a large LIMIT and consuming whatever comes
@@ -164,17 +165,26 @@ func (s *Store) searchAll(
 	index, query string,
 	sortBy []redis.FTSearchSortBy,
 	noContent bool,
-	ret []redis.FTSearchReturn,
-	fn func(redis.Document) (bool, error),
+	fn func(key, body string) (bool, error),
 ) error {
 	for offset := 0; ; offset += searchPageSize {
-		result, err := s.search(ctx, index, query, sortBy, noContent, ret, offset, searchPageSize)
+		result, err := s.search(ctx, index, query, sortBy, offset, searchPageSize)
 		if err != nil {
 			return err
 		}
 
 		for _, doc := range result.Docs {
-			cont, fnErr := fn(doc)
+			var body string
+			if !noContent {
+				body, err = s.client.JSONGet(ctx, doc.ID, "$").Result()
+				if errors.Is(err, redis.Nil) {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+			}
+			cont, fnErr := fn(doc.ID, body)
 			if fnErr != nil {
 				return fnErr
 			}
@@ -384,9 +394,9 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
-		err := s.searchAll(ctx, s.taskIndexName(), "*", sortBy, false, nil,
-			func(doc redis.Document) (bool, error) {
-				td, parseErr := parseDocJSON[taskData](doc)
+		err := s.searchAll(ctx, s.taskIndexName(), "*", sortBy, false,
+			func(key, body string) (bool, error) {
+				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}
@@ -411,9 +421,9 @@ func (s *Store) DueTasks(ctx context.Context, now int64) iter.Seq2[*horai.TaskSt
 		query := fmt.Sprintf("@status:[%d %d] @nextRunAt:[-inf %d]", active, active, now)
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
-		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false, nil,
-			func(doc redis.Document) (bool, error) {
-				td, parseErr := parseDocJSON[taskData](doc)
+		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
+			func(key, body string) (bool, error) {
+				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}
@@ -438,22 +448,6 @@ func unmarshalJSONResult[T any](raw string) (*T, error) {
 	return &arr[0], nil
 }
 
-// parseDocJSON extracts and parses the JSON body from an FT.SEARCH document.
-func parseDocJSON[T any](doc redis.Document) (*T, error) {
-	jsonStr, ok := doc.Fields["$"]
-	if !ok {
-		return nil, errors.New("document missing '$' field")
-	}
-	if strings.HasPrefix(strings.TrimSpace(jsonStr), "[") {
-		return unmarshalJSONResult[T](jsonStr)
-	}
-	var v T
-	if err := json.Unmarshal([]byte(jsonStr), &v); err != nil {
-		return nil, err
-	}
-	return &v, nil
-}
-
 // ListTasks returns up to (pg.Limit+1) task states whose ID is
 // lexicographically greater than pg.AfterID, sorted by ID ascending. When f
 // is non-nil it is evaluated on the client with CEL semantics, after
@@ -476,9 +470,9 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*
 
 	var results []*horai.TaskState
 	sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
-	err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false, nil,
-		func(doc redis.Document) (bool, error) {
-			td, parseErr := parseDocJSON[taskData](doc)
+	err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
+		func(key, body string) (bool, error) {
+			td, parseErr := unmarshalJSONResult[taskData](body)
 			if parseErr != nil {
 				return false, coreerrs.WrapOperation(parseErr, "parse task document")
 			}
@@ -599,9 +593,9 @@ func (s *Store) UnfinishedRuns(ctx context.Context) iter.Seq2[*horai.TaskState, 
 		query := "(@runStartedAt:[-inf (0] | @runStartedAt:[(0 +inf])"
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
-		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false, nil,
-			func(doc redis.Document) (bool, error) {
-				td, parseErr := parseDocJSON[taskData](doc)
+		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
+			func(key, body string) (bool, error) {
+				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}

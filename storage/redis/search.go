@@ -13,27 +13,13 @@ import (
 
 const searchDialect = 2
 
-// search uses the raw command reply because typed SDK decoding can discard
-// attributes when a cluster returns field/value arrays inside a RESP3 map.
+// search requests IDs only: cluster RediSearch does not return JSON bodies.
 func (s *Store) search(
 	ctx context.Context, index, query string, sortBy []redis.FTSearchSortBy,
-	noContent bool, ret []redis.FTSearchReturn, offset, limit int,
+	offset, limit int,
 ) (redis.FTSearchResult, error) {
-	args := []any{"FT.SEARCH", index, query}
-	if noContent {
-		args = append(args, "NOCONTENT")
-	}
-	if ret != nil {
-		fields := []any{}
-		for _, field := range ret {
-			fields = append(fields, field.FieldName)
-			if field.As != "" {
-				fields = append(fields, "AS", field.As)
-			}
-		}
-		args = append(args, "RETURN", len(fields))
-		args = append(args, fields...)
-	}
+	args := make([]any, 0, 4+3*len(sortBy)+6)
+	args = append(args, "FT.SEARCH", index, query, "NOCONTENT")
 	for _, sort := range sortBy {
 		direction := "ASC"
 		if sort.Desc {
@@ -46,15 +32,14 @@ func (s *Store) search(
 	if err != nil {
 		return redis.FTSearchResult{}, err
 	}
-	return parseSearchReply(raw, noContent)
+	return parseSearchReply(raw)
 }
 
-// parseSearchReply accepts RESP2 arrays and RESP3 maps. Both JSON roots and
-// projected/hash fields are retained without interpreting the document schema.
-func parseSearchReply(raw any, noContent bool) (redis.FTSearchResult, error) {
+// parseSearchReply accepts IDs and totals in RESP2 arrays and RESP3 maps.
+func parseSearchReply(raw any) (redis.FTSearchResult, error) {
 	var result redis.FTSearchResult
 	if values, ok := raw.([]any); ok {
-		return parseSearchArray(values, noContent)
+		return parseSearchArray(values)
 	}
 	fields, err := searchMap(raw)
 	if err != nil {
@@ -79,32 +64,9 @@ func parseSearchReply(raw any, noContent bool) (redis.FTSearchResult, error) {
 			return result, fmt.Errorf("invalid search document ID: %T", item["id"])
 		}
 		doc := redis.Document{ID: id}
-		if !noContent {
-			doc.Fields, err = searchDocumentFields(item)
-			if err != nil {
-				return result, err
-			}
-		}
 		result.Docs = append(result.Docs, doc)
 	}
 	return result, nil
-}
-
-func searchDocumentFields(item map[string]any) (map[string]string, error) {
-	var fields map[string]string
-	if attrs := item["extra_attributes"]; attrs != nil {
-		var err error
-		fields, err = searchFields(attrs)
-		if err != nil {
-			return nil, err
-		}
-	}
-	// RESP3 can omit attributes for NOCONTENT or RETURN 0. Prefer named
-	// attributes when populated; otherwise retain fields supplied in values.
-	if len(fields) == 0 && item["values"] != nil {
-		return searchFields(item["values"])
-	}
-	return fields, nil
 }
 
 func searchMap(raw any) (map[string]any, error) {
@@ -121,41 +83,12 @@ func searchMap(raw any) (map[string]any, error) {
 			result[name] = value
 		}
 		return result, nil
-	case []any:
-		if len(fields)%2 != 0 {
-			return nil, fmt.Errorf("odd search field/value array")
-		}
-		result := make(map[string]any, len(fields)/2)
-		for i := 0; i < len(fields); i += 2 {
-			name, ok := fields[i].(string)
-			if !ok {
-				return nil, fmt.Errorf("invalid search field name: %T", fields[i])
-			}
-			result[name] = fields[i+1]
-		}
-		return result, nil
 	default:
 		return nil, fmt.Errorf("invalid search fields: %T", raw)
 	}
 }
 
-func searchFields(raw any) (map[string]string, error) {
-	fields, err := searchMap(raw)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]string, len(fields))
-	for key, value := range fields {
-		text, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid search field %q value: %T", key, value)
-		}
-		result[key] = text
-	}
-	return result, nil
-}
-
-func parseSearchArray(values []any, noContent bool) (redis.FTSearchResult, error) {
+func parseSearchArray(values []any) (redis.FTSearchResult, error) {
 	var result redis.FTSearchResult
 	if len(values) == 0 {
 		return result, fmt.Errorf("empty search reply")
@@ -171,17 +104,6 @@ func parseSearchArray(values []any, noContent bool) (redis.FTSearchResult, error
 			return result, fmt.Errorf("invalid search document ID: %T", values[i])
 		}
 		doc := redis.Document{ID: id}
-		if !noContent {
-			i++
-			if i == len(values) {
-				return result, fmt.Errorf("missing search document fields")
-			}
-			fields, err := searchFields(values[i])
-			if err != nil {
-				return result, err
-			}
-			doc.Fields = fields
-		}
 		result.Docs = append(result.Docs, doc)
 	}
 	return result, nil

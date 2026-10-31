@@ -125,14 +125,4 @@ func TestJSONMappingErrors(t *testing.T) {
 		_, err := unmarshalJSONResult[taskData](raw)
 		require.Error(t, err)
 	}
-	for _, fields := range []map[string]string{nil, {"$": "invalid"}} {
-		_, err := parseDocJSON[taskData](rdb.Document{Fields: fields})
-		require.Error(t, err)
-	}
-	doc, err := parseDocJSON[taskData](rdb.Document{Fields: map[string]string{"$": `{"id":"task"}`}})
-	require.NoError(t, err)
-	require.Equal(t, "task", doc.ID)
-	doc, err = parseDocJSON[taskData](rdb.Document{Fields: map[string]string{"$": `[{"id":"wrapped"}]`}})
-	require.NoError(t, err)
-	require.Equal(t, "wrapped", doc.ID)
 }
