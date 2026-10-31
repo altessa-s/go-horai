@@ -53,3 +53,22 @@ func FuzzFilter(f *testing.F) {
 		require.NotRegexp(t, regexp.MustCompile(`(^|[^\\])\{`), escaped)
 	})
 }
+
+func TestFilterPrecisionBoundary(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		bound, value int64
+		op           query.Op
+	}{
+		{maxExactInteger, maxExactInteger + 1, query.Gt},
+		{-maxExactInteger, -maxExactInteger - 1, query.Lt},
+	} {
+		// The index cannot distinguish these values. An exclusive indexed
+		// range would drop the row before the exact client predicate sees it.
+		require.Equal(t, float64(tc.bound), float64(tc.value))
+		p, err := newFilterPlan(query.Cmp{Field: "durationMs", Op: tc.op, Value: tc.bound}, query.HistoryFields())
+		require.NoError(t, err)
+		require.Empty(t, p.query)
+		require.True(t, p.match(query.Record{"durationMs": tc.value}))
+	}
+}

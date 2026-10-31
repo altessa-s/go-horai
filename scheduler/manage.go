@@ -268,18 +268,27 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	if !task.claim() {
 		return horai.ErrTaskAlreadyDispatched
 	}
-	s.lifecycle.Lock()
-	defer s.lifecycle.Unlock()
-	if s.stopping || !s.isRunning.Load() {
-		task.release()
-		return horai.ErrNotReady
-	}
+	// Dynamic admission invokes the consumer's limit callback. Keep it outside
+	// lifecycle so it can inspect or stop the scheduler without deadlocking.
+	var release func()
 	if _, dynamic := s.slots.(*dynamicSlots); dynamic {
-		release, admitted := s.slots.acquire(ctx, task.config.Priority, true)
+		var admitted bool
+		release, admitted = s.slots.acquire(ctx, task.config.Priority, true)
 		if !admitted {
 			task.release()
 			return horai.ErrConcurrencyLimit
 		}
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if s.stopping || !s.isRunning.Load() {
+		if release != nil {
+			release()
+		}
+		task.release()
+		return horai.ErrNotReady
+	}
+	if release != nil {
 		s.wg.Go(func() { defer task.release(); defer release(); s.executeTask(s.stopCtx, task, state) })
 		return nil
 	}

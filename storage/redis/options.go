@@ -7,7 +7,7 @@ package redis
 import "time"
 
 //go:generate optgen generate --type=options
-//go:generate sh -c "cat ../../docs/generated-header.txt options_gen.go > .header.tmp && mv .header.tmp options_gen.go"
+//go:generate sh -c "sed -n '1,4p' options.go > .header.tmp && cat options_gen.go >> .header.tmp && mv .header.tmp options_gen.go"
 
 const (
 	// DefaultKeyPrefix is the default Redis key prefix prepended to all keys

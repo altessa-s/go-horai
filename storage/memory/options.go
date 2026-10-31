@@ -7,7 +7,7 @@ package memory
 // DefaultMaxHistoryPerTask bounds retained history in memory.
 //
 //go:generate optgen generate --type=options
-//go:generate sh -c "cat ../../docs/generated-header.txt options_gen.go > .header.tmp && mv .header.tmp options_gen.go"
+//go:generate sh -c "sed -n '1,4p' options.go > .header.tmp && cat options_gen.go >> .header.tmp && mv .header.tmp options_gen.go"
 const DefaultMaxHistoryPerTask = 1000
 
 type options struct {

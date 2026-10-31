@@ -210,3 +210,31 @@ func TestRegistrationLostWrites(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, engine(t, lostRegistration{Store: store(t)}).Register(ctx, cfg), context.Canceled)
 }
+
+func TestTriggerConcurrencyCallbackCanStop(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var stopOnAdmission bool
+		var s *scheduler.Scheduler
+		s = engine(t, store(t), scheduler.WithTickInterval(time.Hour),
+			scheduler.WithConcurrencyLimit(func() int {
+				if stopOnAdmission {
+					require.NoError(t, s.Stop(t.Context()))
+				}
+				return 1
+			}))
+		var calls atomic.Int32
+		require.NoError(t, s.Register(t.Context(), task.Config{
+			ID: "stop", Schedule: "@hourly",
+			Func: func(context.Context) error { calls.Add(1); return nil },
+		}))
+		require.NoError(t, s.Start(t.Context()))
+		synctest.Wait()
+		stopOnAdmission = true
+		require.ErrorIs(t, s.Trigger(t.Context(), "stop"), horai.ErrNotReady)
+		require.Zero(t, calls.Load())
+		stopOnAdmission = false
+		require.Zero(t, s.Status().RunningTasks)
+		require.Equal(t, 1, s.Status().AvailableSlots)
+	})
+}

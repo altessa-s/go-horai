@@ -52,5 +52,7 @@ Clock and Metrics are owned ports. Factories, gRPC, CEL, OpenTelemetry, health i
 
 ## Development
 
-See [AGENTS.md](AGENTS.md), [architecture decisions](docs/adr), and [Docker tests](integration/docker/README.md).
+Dependencies point inward: the domain owns ports, the scheduler orchestrates them,
+and storage adapters implement them. Consumers own configuration and startup.
+See [Docker tests](integration/docker/README.md) for backend verification.
 The proof command is `make vet && make lint && make test-all && make test-integration && make generate`.
