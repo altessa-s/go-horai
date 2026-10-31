@@ -37,8 +37,7 @@ const (
 	searchPageSize = 1000
 )
 
-// Store provides a Redis-backed implementation of the [horai.Store],
-// [horai.Store] interface
+// Store provides a Redis-backed implementation of [horai.Store]
 // using RedisJSON for document storage and RediSearch for indexed querying.
 //
 // All methods are safe for concurrent use by multiple goroutines.
@@ -49,7 +48,7 @@ const (
 // Key patterns used:
 //   - Task state: {prefix}:task:{task_id} (JSON document via JSON.SET)
 //   - History entry: {prefix}:history:{task_id}:{history_id} (JSON document via JSON.SET)
-//   - Task index: {prefix}:idx:tasks (RediSearch FT index, created by [Store.EnsureIndexes])
+//   - Task index: {prefix}:idx:tasks:v2 (RediSearch FT index, created by [Store.EnsureIndexes])
 //   - History index: {prefix}:idx:history (RediSearch FT index, created by [Store.EnsureIndexes])
 type Store struct {
 	client    redis.UniversalClient
@@ -138,7 +137,7 @@ func (s *Store) historyKey(taskID string, historyID string) string {
 
 // taskIndexName returns the RediSearch index name for tasks.
 func (s *Store) taskIndexName() string {
-	return s.key(idxKeyPrefix, taskIndexSuffix)
+	return s.key(idxKeyPrefix, taskIndexSuffix+":"+taskIndexVersion)
 }
 
 // historyIndexName returns the RediSearch index name for history.
@@ -614,7 +613,7 @@ func (s *Store) UnfinishedRuns(ctx context.Context) iter.Seq2[*horai.TaskState, 
 				return yield(td.toTaskState(), nil), nil
 			})
 		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "search due tasks"))
+			yield(nil, coreerrs.WrapOperation(err, "search unfinished runs"))
 		}
 	}
 }

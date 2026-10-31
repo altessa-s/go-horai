@@ -11,30 +11,32 @@ import (
 	"github.com/altessa-s/go-horai/query"
 )
 
-func column(f query.Field) string {
+func column(f query.Field) (string, error) {
 	switch f {
 	case "taskId":
-		return "task_id"
+		return "task_id", nil
 	case "runId":
-		return "run_id"
+		return "run_id", nil
 	case "startedAt":
-		return "started_at"
+		return "started_at", nil
 	case "endedAt":
-		return "ended_at"
+		return "ended_at", nil
 	case "durationMs":
-		return "duration_ms"
+		return "duration_ms", nil
 	case "lastRunAt":
-		return "last_run_at"
+		return "last_run_at", nil
 	case "nextRunAt":
-		return "next_run_at"
+		return "next_run_at", nil
 	case "skipNextRun":
-		return "skip_next_run"
+		return "skip_next_run", nil
 	case "disableHistory":
-		return "disable_history"
+		return "disable_history", nil
 	case "oneShot":
-		return "one_shot"
+		return "one_shot", nil
+	case "id", "description", "schedule", "status", "priority", "failures", "unmanaged", "success", "error":
+		return string(f), nil
 	}
-	return string(f)
+	return "", fmt.Errorf("%w: field %q", query.ErrInvalid, f)
 }
 func translate(e query.Expr, fields []query.Field, d Dialect) (string, []any, error) {
 	if err := query.Validate(e, fields); err != nil {
@@ -79,7 +81,7 @@ func translate(e query.Expr, fields []query.Field, d Dialect) (string, []any, er
 }
 
 func comparison(v query.Cmp, bind func(any) string) string {
-	col := column(v.Field)
+	col, _ := column(v.Field) // Validate rejects fields outside the closed mapping.
 	if v.Op == query.In {
 		var values []string
 		switch vs := v.Value.(type) {

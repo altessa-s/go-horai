@@ -226,8 +226,6 @@ func (s *Scheduler) History(ctx context.Context, id string) iter.Seq2[*horai.Tas
 // [horai.ErrTaskAlreadyDispatched] if a dispatch for this task is already queued or
 // running.
 func (s *Scheduler) Trigger(ctx context.Context, id string) error {
-	s.lifecycle.Lock()
-	defer s.lifecycle.Unlock()
 	if !s.isRunning.Load() {
 		return horai.ErrNotReady
 	}
@@ -243,7 +241,9 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 		return horai.ErrTaskNotRegistered
 	}
 
-	state, err := s.storage.GetTask(ctx, id)
+	opCtx, cancel := s.storageCtx(ctx)
+	defer cancel()
+	state, err := s.storage.GetTask(opCtx, id)
 	if err != nil {
 		return err
 	}
@@ -265,6 +265,12 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	// that is already queued or running.
 	if !task.claim() {
 		return horai.ErrTaskAlreadyDispatched
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if s.stopping || !s.isRunning.Load() {
+		task.release()
+		return horai.ErrNotReady
 	}
 	s.wg.Go(func() {
 		defer task.release()

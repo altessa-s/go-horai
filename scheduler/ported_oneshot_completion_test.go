@@ -144,9 +144,9 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 	})
 }
 
-// TestReRegisterLegacyCompletedOneShot covers tasks completed before RunAt was
-// persisted: the last run's start time stands in for the registered RunAt.
-func TestReRegisterLegacyCompletedOneShot(t *testing.T) {
+// TestReRegisterDifferentCompletedOccurrence covers tasks completed with a different RunAt
+// persisted: registration now requires an exact RunAt match.
+func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 
@@ -157,8 +157,8 @@ func TestReRegisterLegacyCompletedOneShot(t *testing.T) {
 			runAt  time.Time
 			status horai.TaskStatus
 		}{
-			{"earlier_run_at", lastRun.Add(-time.Minute), horai.TaskStatusCompleted},
-			{"equal_run_at", lastRun, horai.TaskStatusCompleted},
+			{"earlier_run_at", lastRun.Add(-time.Minute), horai.TaskStatusActive},
+			{"equal_run_at", lastRun, horai.TaskStatusActive},
 			{"later_run_at", lastRun.Add(time.Minute), horai.TaskStatusActive},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {

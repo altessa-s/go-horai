@@ -59,7 +59,7 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 	calls := fake.Calls()
 	// Two tables, the column probe and one ALTER per added column (the fake
 	// reports none).
-	require.Len(t, calls, 6)
+	require.Len(t, calls, 8)
 	for _, c := range calls {
 		require.NotContains(t, c.Query, "VERSION()")
 		require.NotContains(t, c.Query, "COLLATE")
@@ -266,7 +266,7 @@ func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
 		require.NoError(t, store.EnsureSchema(t.Context()))
 		var alters []string
 		for _, c := range fake.Calls() {
-			if strings.Contains(c.Query, "information_schema") {
+			if strings.Contains(c.Query, "information_schema.COLUMNS") {
 				require.Equal(t, []any{"app", "sched_tasks"}, c.Args)
 			}
 			if strings.HasPrefix(c.Query, "ALTER TABLE") {

@@ -7,7 +7,6 @@ package memory_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-horai/storage/memory"
@@ -38,7 +37,7 @@ func FuzzStorage_CreateAndGet(f *testing.F) {
 		got, err := s.GetTask(ctx, id)
 		require.NoError(t, err)
 		require.NotNil(t, got)
-		assert.Equal(t, id, got.ID)
+		require.Equal(t, id, got.ID)
 	})
 }
 

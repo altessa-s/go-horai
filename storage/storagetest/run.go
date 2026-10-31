@@ -17,6 +17,7 @@ var contracts = []struct {
 	check func(*testing.T, horai.Store)
 }{
 	{"UnfinishedRuns", UnfinishedRuns},
+	{"ConcurrentClaim", ConcurrentClaim},
 	{"LargeValues", LargeValues},
 	{"ListTasksFilterParity", ListTasksFilterParity},
 	{"FinishRun", FinishRun},

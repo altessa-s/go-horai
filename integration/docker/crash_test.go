@@ -156,6 +156,13 @@ func schemaUpgrade(t *testing.T, db *sql.DB, kind, addr string) {
 	ok, err := st.CreateTask(t.Context(), &horai.TaskState{ID: "preserved", Status: horai.TaskStatusActive})
 	require.NoError(t, err)
 	require.True(t, ok)
+	indexName := ns + "_tasks_unfinished_idx"
+	drop := "DROP INDEX " + indexName
+	if kind == "mysql" {
+		drop += " ON " + ns + "_tasks"
+	}
+	_, err = db.ExecContext(t.Context(), drop)
+	require.NoError(t, err)
 	for _, column := range []string{"run_lease_until", "run_lease_id", "run_at"} {
 		_, err := db.ExecContext(t.Context(), "ALTER TABLE "+ns+"_tasks DROP COLUMN "+column)
 		require.NoError(t, err)
@@ -175,5 +182,12 @@ func schemaUpgrade(t *testing.T, db *sql.DB, kind, addr string) {
 	got, err := st.GetTask(t.Context(), "preserved")
 	require.NoError(t, err)
 	require.NotNil(t, got)
+	var indexes int
+	if kind == "mysql" {
+		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?", ns+"_tasks", indexName).Scan(&indexes))
+	} else {
+		require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM pg_indexes WHERE tablename = $1 AND indexname = $2", ns+"_tasks", indexName).Scan(&indexes))
+	}
+	require.Equal(t, 1, indexes)
 	require.Zero(t, got.RunLeaseUntil)
 }

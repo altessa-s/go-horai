@@ -72,6 +72,25 @@ func TestRedis(t *testing.T) {
 		require.NoError(t, s.EnsureIndexes(t.Context()))
 		return s
 	}
+	t.Run("index_upgrade", func(t *testing.T) {
+		prefix := namespace()
+		require.NoError(t, client.FTCreate(t.Context(), prefix+":idx:tasks", &rdb.FTCreateOptions{OnJSON: true, Prefix: []any{prefix + ":task:"}}, &rdb.FieldSchema{FieldName: "$.id", As: "id", FieldType: rdb.SearchFieldTypeTag}).Err())
+		s, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))
+		require.NoError(t, err)
+		require.NoError(t, s.EnsureIndexes(t.Context()))
+		_, err = client.FTInfo(t.Context(), prefix+":idx:tasks:v2").Result()
+		require.NoError(t, err)
+		ok, err := s.CreateTask(t.Context(), &horai.TaskState{ID: "unfinished", Status: horai.TaskStatusPaused, RunStartedAt: 10, LastRunID: "node/run"})
+		require.NoError(t, err)
+		require.True(t, ok)
+		count := 0
+		for state, err := range s.UnfinishedRuns(t.Context()) {
+			require.NoError(t, err)
+			require.Equal(t, "unfinished", state.ID)
+			count++
+		}
+		require.Equal(t, 1, count)
+	})
 	storagetest.Run(t, factory)
 	t.Run("ownership", func(t *testing.T) { endToEnd(t, factory(t)) })
 	t.Run("crash_recovery", func(t *testing.T) { crashRecovery(t, "redis", addr) })

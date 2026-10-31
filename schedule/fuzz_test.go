@@ -24,7 +24,13 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		next := s.Next(now)
-		require.True(t, next.IsZero() || next.After(now))
+		for range 5 {
+			next := s.Next(now)
+			require.True(t, next.IsZero() || next.After(now))
+			if next.IsZero() {
+				break
+			}
+			now = next
+		}
 	})
 }

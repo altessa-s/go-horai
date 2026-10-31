@@ -209,11 +209,11 @@ func ExampleNew() {
 }
 
 // A high-priority waiter must observe a reserved slot released after it queued.
-func TestReservedOnlySlotsRelease(t *testing.T) {
+func TestReservedSlotsRelease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		st := store(t)
-		s := engine(t, st, scheduler.WithMaxConcurrentTasks(1), scheduler.WithReservedHighPrioritySlots(1))
+		s := engine(t, st, scheduler.WithMaxConcurrentTasks(2), scheduler.WithReservedHighPrioritySlots(1))
 		var calls atomic.Int32
 		for _, id := range []string{"first", "second"} {
 			require.NoError(t, s.Register(t.Context(), task.Config{ID: id, Priority: task.PriorityHigh, RunAt: time.Now(), Func: func(context.Context) error { calls.Add(1); time.Sleep(2 * time.Second); return nil }}))
@@ -224,7 +224,7 @@ func TestReservedOnlySlotsRelease(t *testing.T) {
 		require.Equal(t, int32(2), calls.Load())
 		status := s.Status()
 		require.Zero(t, status.RunningTasks)
-		require.Equal(t, 1, status.AvailableSlots)
+		require.Equal(t, 2, status.AvailableSlots)
 		require.NoError(t, s.Stop(t.Context()))
 	})
 }

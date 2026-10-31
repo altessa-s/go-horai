@@ -17,13 +17,9 @@ import (
 // separator.
 const runIDSeparator = "/"
 
-// runOwner returns the instance ID that created runID, or "" for a run ID
-// written before run IDs carried their owner.
+// runOwner returns the instance ID encoded in runID.
 func runOwner(runID string) string {
-	owner, _, found := strings.CutLast(runID, runIDSeparator)
-	if !found {
-		return ""
-	}
+	owner, _, _ := strings.CutLast(runID, runIDSeparator)
 	return owner
 }
 

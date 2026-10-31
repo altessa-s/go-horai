@@ -6,7 +6,7 @@ package horai
 
 // LeaderElector is the narrow leader-election contract consumed by the
 // scheduler. Any type exposing a concurrency-safe IsLeader method satisfies
-// it — for example, *leadelect.Leader from data/leadelect.
+// it. The consumer owns leader election and its lifecycle.
 type LeaderElector interface {
 	// IsLeader reports whether this node currently holds leadership.
 	// Implementations must be safe for concurrent use.

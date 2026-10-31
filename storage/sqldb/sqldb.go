@@ -88,10 +88,10 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 
 	s := &Store{db: db, dialect: dl}
 	if s.tasksTable, err = dl.Table(o.tasksTable); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tasksTable: %w: %v", ErrInvalidTableName, err)
 	}
 	if s.historyTable, err = dl.Table(o.historyTable); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("historyTable: %w: %v", ErrInvalidTableName, err)
 	}
 	s.tasksName = sqldialect.Unqualified(o.tasksTable)
 	s.tasksSchema = sqldialect.Qualifier(o.tasksTable)

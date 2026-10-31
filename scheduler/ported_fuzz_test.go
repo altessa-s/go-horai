@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-horai"
@@ -67,7 +66,7 @@ func FuzzMemoryStorage_CreateAndGet(f *testing.F) {
 		got, err := storage.GetTask(ctx, id)
 		require.NoError(t, err)
 		require.NotNil(t, got)
-		assert.Equal(t, id, got.ID)
+		require.Equal(t, id, got.ID)
 	})
 }
 
@@ -83,6 +82,6 @@ func FuzzTaskStatus_String(f *testing.F) {
 		status := horai.TaskStatus(s)
 		// Should not panic
 		result := status.String()
-		assert.NotEmpty(t, result, "String() returned empty")
+		require.NotEmpty(t, result, "String() returned empty")
 	})
 }

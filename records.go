@@ -7,7 +7,7 @@ package horai
 import "github.com/altessa-s/go-horai/query"
 
 // QueryRecord converts a task state to a map for filter evaluation. Field names use
-// proto camelCase to match CEL expressions.
+// camelCase names defined by the query field allowlists.
 func (s *TaskState) QueryRecord() query.Record {
 	return query.Record{
 		"id":             s.ID,

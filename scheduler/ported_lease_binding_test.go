@@ -92,10 +92,8 @@ func TestInheritedLeaseIsNotTrusted(t *testing.T) {
 	})
 }
 
-// TestUnboundLeaseUsesLaterDeadline pins the conservative rule for a lease not
-// bound to any run: the run is recovered only once both the lease and the
-// local fallback have expired.
-func TestUnboundLeaseUsesLaterDeadline(t *testing.T) {
+// An unbound lease cannot extend the current run's fallback deadline.
+func TestUnboundLeaseDoesNotProtectRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 
@@ -105,7 +103,7 @@ func TestUnboundLeaseUsesLaterDeadline(t *testing.T) {
 			recovered  bool
 		}{
 			{"both_expired", -10, true},
-			{"lease_valid", 3600, false},
+			{"lease_valid", 3600, true},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
 

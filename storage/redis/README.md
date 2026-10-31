@@ -7,3 +7,6 @@ Store requires RedisJSON and RediSearch (Redis Stack). New(client, options...) v
 The caller owns connections and lifecycle. Operations accept contexts. History cleanup uses an exclusive Unix-second cutoff supplied by the scheduler. Cursors and filters are typed; the library has no query text parser or signed page tokens.
 
 Run unit tests with `go test ./...`. Live backend contracts are in `integration/docker` under the `integration_docker` build tag. They fail when a required server cannot start; they do not silently skip.
+
+The task search index is versioned as `{prefix}:idx:tasks:v2` (`taskIndexVersion`); v2 adds `runStartedAt` for unfinished-run recovery.
+`EnsureIndexes` creates it beside an older index. The history schema is unchanged and keeps its existing index name.

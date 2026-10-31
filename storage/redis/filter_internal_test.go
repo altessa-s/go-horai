@@ -5,10 +5,13 @@
 package redis
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-horai/internal/testhelpers"
 	"github.com/altessa-s/go-horai/query"
 
 	rdb "github.com/redis/go-redis/v9"
@@ -32,12 +35,21 @@ func TestFilterPlan(t *testing.T) {
 	require.Error(t, err)
 }
 func FuzzFilter(f *testing.F) {
-	f.Add("a:b", int64(0))
-	f.Fuzz(func(t *testing.T, id string, n int64) {
-		e := query.Cmp{Field: "failures", Op: query.Eq, Value: n}
-		p, err := newFilterPlan(e, query.TaskFields())
+	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		fields := append(query.TaskFields(), query.HistoryFields()...)
+		e := testhelpers.QueryTree(data, fields)
+		plan, err := newFilterPlan(e, fields)
 		require.NoError(t, err)
-		require.True(t, p.match(query.Record{"failures": n}))
-		_ = escapeTag(id)
+		require.NotContains(t, plan.query, "value:")
+		require.Equal(t, strings.Count(plan.query, "["), strings.Count(plan.query, "]"))
+		if plan.query != "" {
+			require.Regexp(t, `^(@(status|priority|failures|startedAt|endedAt|durationMs):\[[()0-9+inf -]+\] ?)+$`, plan.query)
+		}
+		for _, r := range []query.Record{nil, {"status": int64(2), "id": "value:"}} {
+			require.Equal(t, query.Match(e, r), plan.match(r))
+		}
+		escaped := escapeTag(string(data))
+		require.NotRegexp(t, regexp.MustCompile(`(^|[^\\])\{`), escaped)
 	})
 }

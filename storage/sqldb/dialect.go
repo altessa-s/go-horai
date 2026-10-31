@@ -25,11 +25,11 @@ const (
 var (
 	// ErrUnsupportedDialect is returned by [New] for a dialect other than
 	// [Postgres] or [MySQL].
-	ErrUnsupportedDialect = sqldialect.ErrUnsupportedDialect
+	ErrUnsupportedDialect = errors.New("sqldb: unsupported dialect")
 	// ErrInvalidTableName is returned by [New] when a table name is not a plain
 	// SQL identifier, optionally qualified by one schema name, or a part of it
 	// exceeds 63 characters.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = errors.New("sqldb: invalid table name")
 	// ErrValueTooLong is returned by writes whose ID-like value exceeds its
 	// column: task, history and run IDs hold at most [MaxIDLength] characters,
 	// a schedule at most [MaxScheduleLength]. Rejecting them up front matters

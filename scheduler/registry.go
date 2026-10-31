@@ -254,18 +254,11 @@ func (s *Scheduler) mergeRegistered(
 
 // completedFor reports whether the completed one-shot task existing already
 // executed the occurrence registered for runAt (Unix seconds).
-func completedFor(existing *horai.TaskState, runAt int64) bool {
-	if existing.RunAt != 0 {
-		return existing.RunAt == runAt
-	}
-	// Completed before RunAt was persisted: the run that completed it started
-	// at LastRunAt, at or after the occurrence it executed.
-	return existing.LastRunAt != 0 && runAt <= existing.LastRunAt
-}
+func completedFor(existing *horai.TaskState, runAt int64) bool { return existing.RunAt == runAt }
 
 // Unregister removes a task from both the in-memory dispatch map and the
-// [horai.Store] backend, together with its history — from a [WithHistoryStore]
-// backend too when it is a [HistoryDeleter]. Any currently running instance of
+// [horai.Store] backend. History deletion is best effort, including a separate
+// [WithHistoryStore] backend. Any currently running instance of
 // the task will complete normally; only future dispatches are prevented.
 //
 // A task persisted by an earlier process but not registered in this one is
@@ -284,7 +277,9 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	lock := s.registrationLock(id)
 	lock.Lock()
 	defer lock.Unlock()
-	state, err := s.storage.GetTask(ctx, id)
+	opCtx, opCancel := s.storageCtx(ctx)
+	defer opCancel()
+	state, err := s.storage.GetTask(opCtx, id)
 	if err != nil {
 		return err
 	}
@@ -294,7 +289,7 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	if state == nil && !registered {
 		return horai.ErrTaskNotRegistered
 	}
-	if err := s.storage.DeleteTask(ctx, id); err != nil {
+	if err := s.storage.DeleteTask(opCtx, id); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -304,5 +299,8 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	s.metrics.RegisteredChanged(n)
 	delCtx, cancel := s.storageCtx(ctx)
 	defer cancel()
-	return s.history.DeleteHistory(delCtx, id)
+	if err := s.history.DeleteHistory(delCtx, id); err != nil {
+		s.logger.WarnContext(ctx, "failed to delete task history", slog.String("task_id", id), slog.Any("error", err))
+	}
+	return nil
 }

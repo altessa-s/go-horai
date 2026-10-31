@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-horai/internal/testhelpers"
 	"github.com/altessa-s/go-horai/query"
 )
 
@@ -54,15 +55,15 @@ func TestValidation(t *testing.T) {
 	require.Equal(t, query.Field("id"), query.TaskFields()[0])
 }
 func FuzzQuery(f *testing.F) {
-	f.Add("status", int64(2), uint8(0))
-	f.Add("id", int64(-1), uint8(5))
-	f.Fuzz(func(t *testing.T, field string, n int64, op uint8) {
-		ops := []query.Op{query.Eq, query.Ne, query.Lt, query.Le, query.Gt, query.Ge}
-		e := query.Cmp{Field: query.Field(field), Op: ops[int(op)%len(ops)], Value: n}
-		if query.Validate(e, query.TaskFields()) == nil {
-			r := query.Record{query.Field(field): n}
+	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		fields := append(query.TaskFields(), query.HistoryFields()...)
+		e := testhelpers.QueryTree(data, fields)
+		require.NoError(t, query.Validate(e, fields))
+		for _, r := range []query.Record{nil, {"id": "value:", "status": int64(1), "oneShot": true}, {"success": false, "startedAt": int64(-10)}} {
 			require.NotEqual(t, query.Match(e, r), query.Match(query.Not{Expr: e}, r))
 			require.Equal(t, query.Match(e, r), query.Match(query.And{e, e}, r))
+			require.Equal(t, query.Match(e, r), query.Match(query.Or{e, e}, r))
 		}
 	})
 }

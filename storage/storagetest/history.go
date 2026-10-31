@@ -133,9 +133,9 @@ func HistoryPage(t *testing.T, store horai.HistoryStore) {
 	}
 }
 
-// HistoryDelete verifies, for a store that is a [horai.HistoryDeleter],
-// that DeleteHistory removes exactly one task's history and that deleting a
-// task without history is not an error. It skips any other store. The
+// HistoryDelete verifies mandatory history deletion for a [horai.HistoryStore].
+// DeleteHistory removes exactly one task's history; deleting a task without
+// history is not an error. The
 // supplied store must be empty and isolated per invocation.
 //
 //nolint:mnd // Fixed timestamps describe the storage contract.

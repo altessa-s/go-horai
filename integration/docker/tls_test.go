@@ -72,7 +72,7 @@ func tlsMaterial(t testing.TB) ([]byte, []byte, *tls.Config) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caFile, certPEM, 0600))
-	config := tlsutils.ClientTLSConfig(nil, "localhost")
+	config := tlsutils.DefaultClientTLSConfigStrict("localhost")
 	config.RootCAs, err = tlsutils.BuildCAPool(false, caFile)
 	require.NoError(t, err)
 

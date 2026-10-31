@@ -85,7 +85,8 @@ type HistoryPage struct {
 	Limit          int64
 }
 
-// Clock supplies the engine's timestamps.
+// Clock supplies the engine's timestamps. It must advance with real time:
+// scheduler waits use standard timers. Tests may virtualize both with testing/synctest.
 type Clock interface{ Now() time.Time }
 
 // ReadinessFunc gates execution without stopping lifecycle processing.

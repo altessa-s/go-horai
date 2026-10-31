@@ -12,12 +12,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"golang.org/x/mod/modfile"
 )
 
 const module = "github.com/altessa-s/go-horai"
@@ -37,7 +40,7 @@ func layers() map[string][]string {
 		"storage/clickhouse":             {module, module + "/query", core + "...", "github.com/ClickHouse/clickhouse-go/v2/..."},
 		"horaitest":                      {module, module + "/task", core + "time/clock", "github.com/stretchr/testify/..."},
 		"storage/storagetest":            {module, module + "/task", module + "/query", "github.com/stretchr/testify/..."},
-		"internal/testhelpers":           nil,
+		"internal/testhelpers":           {module + "/query"},
 		"integration/docker":             nil,
 		"devtools":                       {"github.com/altessa-s/go-copyright-checker/...", "github.com/altessa-s/go-optgen/...", "github.com/daixiang0/gci", "github.com/golangci/golangci-lint/v2/...", "github.com/mibk/dupl", "github.com/securego/gosec/v2/...", "golang.org/x/perf/...", "golang.org/x/vuln/..."},
 	}
@@ -82,6 +85,10 @@ func TestArchitecture(t *testing.T) {
 		require.True(t, ok, "add package %s to layers and AGENTS.md", dir)
 		seen[dir] = true
 		test := strings.HasSuffix(p, "_test.go")
+		if test && !strings.HasSuffix(f.Name.Name, "_test") {
+			require.True(t, strings.HasSuffix(p, "_internal_test.go"), "white-box test must be named *_internal_test.go: %s", p)
+		}
+		generated := ast.IsGenerated(f)
 		for _, i := range f.Imports {
 			imp, err := strconv.Unquote(i.Path.Value)
 			require.NoError(t, err)
@@ -89,6 +96,7 @@ func TestArchitecture(t *testing.T) {
 			if strings.HasPrefix(imp, "github.com/altessa-s/") && dir != "devtools" {
 				require.True(t, imp == module || strings.HasPrefix(imp, module+"/") || strings.HasPrefix(imp, core) || (dir == "integration/docker" && (imp == "github.com/altessa-s/go-tlsutils" || strings.HasPrefix(imp, "github.com/altessa-s/go-tlsutils/"))), "unapproved sibling %s in %s", imp, p)
 			}
+			require.NotEqual(t, "github.com/stretchr/testify/"+"assert", imp, "use require: %s", p)
 			if test {
 				continue
 			}
@@ -98,9 +106,7 @@ func TestArchitecture(t *testing.T) {
 				require.True(t, slices.ContainsFunc(allow, func(a string) bool { return matches(a, imp) }), "forbidden dependency %s in %s", imp, p)
 			}
 		}
-		if test {
-			return nil
-		}
+
 		if d.Name() == "options.go" {
 			generated, err := os.ReadFile(filepath.Join(filepath.Dir(p), "options_gen.go"))
 			require.NoError(t, err, "options require generated companion: %s", p)
@@ -110,15 +116,28 @@ func TestArchitecture(t *testing.T) {
 			switch x := decl.(type) {
 			case *ast.FuncDecl:
 				require.NotEqual(t, "init", x.Name.Name, "init in %s", p)
-				if x.Recv == nil && strings.HasPrefix(x.Name.Name, "With") {
-					require.Equal(t, "options_gen.go", d.Name(), "hand-written option in %s", p)
+				if strings.HasPrefix(x.Name.Name, "With") {
+					require.True(t, generated, "hand-written With function or method in %s", p)
 				}
 			case *ast.GenDecl:
-				if x.Tok == token.VAR {
+				if !test && x.Tok == token.VAR {
 					for _, spec := range x.Specs {
-						for _, n := range spec.(*ast.ValueSpec).Names {
-							require.False(t, ast.IsExported(n.Name) && !strings.HasPrefix(n.Name, "Err"), "exported mutable var %s in %s", n.Name, p)
+						v := spec.(*ast.ValueSpec)
+						for i, n := range v.Names {
+							if !ast.IsExported(n.Name) {
+								continue
+							}
+							require.Regexp(t, `^Err[A-Z]`, n.Name, "exported mutable var in %s", p)
+							require.Greater(t, len(v.Values), i, "sentinel initializer in %s", p)
+							call, ok := v.Values[i].(*ast.CallExpr)
+							require.True(t, ok, p)
+							selector, ok := call.Fun.(*ast.SelectorExpr)
+							require.True(t, ok, p)
+							pkg, ok := selector.X.(*ast.Ident)
+							require.True(t, ok, p)
+							require.True(t, (pkg.Name == "errors" && selector.Sel.Name == "New") || (pkg.Name == "fmt" && selector.Sel.Name == "Errorf"), "sentinel initializer in %s", p)
 						}
+
 					}
 				}
 			}
@@ -141,39 +160,37 @@ func checkMod(t *testing.T, p, dir string) {
 	b, err := os.ReadFile(p)
 	require.NoError(t, err)
 	direct := map[string][]string{
-		".":                  {"github.com/altessa-s/go-atlas-core", "github.com/robfig/cron/v3", "github.com/stretchr/testify"},
+		".":                  {"github.com/altessa-s/go-atlas-core", "github.com/robfig/cron/v3", "github.com/stretchr/testify", "golang.org/x/mod"},
 		"storage/redis":      {module, "github.com/altessa-s/go-atlas-core", "github.com/stretchr/testify", "github.com/redis/go-redis/v9"},
 		"storage/mongo":      {module, "github.com/altessa-s/go-atlas-core", "github.com/stretchr/testify", "go.mongodb.org/mongo-driver/v2"},
 		"storage/clickhouse": {module, "github.com/altessa-s/go-atlas-core", "github.com/stretchr/testify", "github.com/ClickHouse/clickhouse-go/v2"},
 	}
-	inRequire := false
-	for line := range strings.SplitSeq(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		require.False(t, strings.Contains(line, "github.com/altessa-s/go-atlas ") || strings.Contains(line, "github.com/altessa-s/go-atlas/"), "monolith in %s", p)
-		if strings.HasPrefix(line, "replace ") {
-			require.Contains(t, line, module, "external replacement in %s", p)
+	parsed, err := modfile.Parse(p, b, nil)
+	require.NoError(t, err)
+	allowedReplacements := map[string]string{}
+	if strings.HasPrefix(dir, "storage/") || dir == "integration/docker" {
+		allowedReplacements[module] = "../.."
+	}
+	if dir == "integration/docker" {
+		for _, store := range []string{"redis", "mongo", "clickhouse"} {
+			allowedReplacements[module+"/storage/"+store] = "../../storage/" + store
 		}
-		if line == "require (" {
-			inRequire = true
-			continue
+	}
+	require.Len(t, parsed.Replace, len(allowedReplacements), "exact local module replacements in %s", p)
+	for _, r := range parsed.Replace {
+		want, ok := allowedReplacements[r.Old.Path]
+		require.True(t, ok, "external replacement in %s", p)
+		require.Equal(t, want, r.New.Path, p)
+		require.Empty(t, r.Old.Version, p)
+		require.Empty(t, r.New.Version, p)
+	}
+	for _, r := range parsed.Require {
+		require.False(t, regexp.MustCompile(`^github\.com/altessa-s/go-atlas(?:/|$)`).MatchString(r.Mod.Path), "monolith in %s", p)
+		if strings.Contains(r.Mod.Path, "testcontainers") {
+			require.True(t, dir == "integration/docker" || dir == "devtools")
 		}
-		if line == ")" {
-			inRequire = false
-			continue
-		}
-		if !inRequire && !strings.HasPrefix(line, "require ") {
-			continue
-		}
-		line = strings.TrimPrefix(line, "require ")
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if strings.Contains(fields[0], "testcontainers") {
-			require.True(t, dir == "integration/docker" || dir == "devtools", "testcontainers outside Docker module")
-		}
-		if allow, ok := direct[dir]; ok && !strings.Contains(line, "// indirect") {
-			require.Contains(t, allow, fields[0], "direct dependency purity in %s", p)
+		if allow, ok := direct[dir]; ok && !r.Indirect {
+			require.Contains(t, allow, r.Mod.Path, "direct dependency purity in %s", p)
 		}
 	}
 }
