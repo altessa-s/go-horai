@@ -52,8 +52,8 @@ func (s *Store) AddHistory(ctx context.Context, history *horai.TaskHistory) erro
 // full match count — so a task below the cap costs one round trip. The TAG
 // query folds case, though, so that count also includes tasks whose IDs differ
 // only by case and cannot say how many entries are this task's. Once it
-// exceeds the cap, the candidates are walked newest first with only their
-// taskId returned, the first max exact matches are kept and the remaining
+// exceeds the cap, the candidates are walked newest first with their
+// JSON bodies loaded, the first max exact matches are kept and the remaining
 // exact matches deleted, so another task's entries are never counted against
 // this task nor removed.
 func (s *Store) trimHistory(ctx context.Context, taskID string) {
@@ -64,7 +64,7 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 	query := fmt.Sprintf("@taskId:{%s}", escapeTag(taskID))
 
 	// Count only: LIMIT 0 0 returns Total without any document payload.
-	counted, err := s.search(ctx, s.historyIndexName(), query, nil, true, nil, 0, 0)
+	counted, err := s.search(ctx, s.historyIndexName(), query, nil, 0, 0)
 	if err != nil || counted.Total <= s.opts.maxHistoryPerTask {
 		return
 	}
@@ -72,14 +72,18 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 	kept := 0
 	var stale []string
 	newestFirst := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
-	err = s.searchAll(ctx, s.historyIndexName(), query, newestFirst, false, taskIDReturn,
-		func(doc redis.Document) (bool, error) {
+	err = s.searchAll(ctx, s.historyIndexName(), query, newestFirst, false,
+		func(key, body string) (bool, error) {
+			hd, parseErr := unmarshalJSONResult[historyData](body)
+			if parseErr != nil {
+				return false, parseErr
+			}
 			switch {
-			case doc.Fields["taskId"] != taskID:
+			case hd.TaskID != taskID:
 			case kept < s.opts.maxHistoryPerTask:
 				kept++
 			default:
-				stale = append(stale, doc.ID)
+				stale = append(stale, key)
 			}
 			return true, nil
 		})
@@ -106,9 +110,9 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 		query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
-		err := s.searchAll(ctx, s.historyIndexName(), query, sortBy, false, nil,
-			func(doc redis.Document) (bool, error) {
-				hd, parseErr := parseDocJSON[historyData](doc)
+		err := s.searchAll(ctx, s.historyIndexName(), query, sortBy, false,
+			func(key, body string) (bool, error) {
+				hd, parseErr := unmarshalJSONResult[historyData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse history document")
 				}
@@ -133,9 +137,9 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 	// Collect first, delete after: deleting mid-walk would shift the offsets
 	// the pagination is stepping through and leave expired entries behind.
 	var keys []string
-	if err := s.searchAll(ctx, s.historyIndexName(), query, nil, true, nil,
-		func(doc redis.Document) (bool, error) {
-			keys = append(keys, doc.ID)
+	if err := s.searchAll(ctx, s.historyIndexName(), query, nil, true,
+		func(key, body string) (bool, error) {
+			keys = append(keys, key)
 			return true, nil
 		}); err != nil {
 		return coreerrs.WrapOperation(err, "search expired history")
@@ -157,10 +161,6 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 	return nil
 }
 
-// taskIDReturn limits a history search to the taskId field, for callers that
-// only need each entry's key and the exact task ID it belongs to.
-var taskIDReturn = []redis.FTSearchReturn{{FieldName: "taskId"}}
-
 // findHistoryKeys returns all Redis keys for a task's history entries via
 // RediSearch. The TAG query folds case, so each entry's taskId is compared
 // exactly and those of a task whose ID differs only by case are left out.
@@ -169,10 +169,14 @@ func (s *Store) findHistoryKeys(ctx context.Context, taskID string) ([]string, e
 	query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
 	var keys []string
-	err := s.searchAll(ctx, s.historyIndexName(), query, nil, false, taskIDReturn,
-		func(doc redis.Document) (bool, error) {
-			if doc.Fields["taskId"] == taskID {
-				keys = append(keys, doc.ID)
+	err := s.searchAll(ctx, s.historyIndexName(), query, nil, false,
+		func(key, body string) (bool, error) {
+			hd, parseErr := unmarshalJSONResult[historyData](body)
+			if parseErr != nil {
+				return false, parseErr
+			}
+			if hd.TaskID == taskID {
+				keys = append(keys, key)
 			}
 			return true, nil
 		})
@@ -218,9 +222,9 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 
 	var results []*horai.TaskHistory
 	sortBy := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
-	err := s.searchAll(ctx, s.historyIndexName(), "("+query+")", sortBy, false, nil,
-		func(doc redis.Document) (bool, error) {
-			hd, parseErr := parseDocJSON[historyData](doc)
+	err := s.searchAll(ctx, s.historyIndexName(), "("+query+")", sortBy, false,
+		func(key, body string) (bool, error) {
+			hd, parseErr := unmarshalJSONResult[historyData](body)
 			if parseErr != nil {
 				return false, coreerrs.WrapOperation(parseErr, "parse history document")
 			}
@@ -263,13 +267,13 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 // DeleteHistory removes all history entries belonging exactly to id.
 func (s *Store) DeleteHistory(ctx context.Context, id string) error {
 	var keys []string
-	err := s.searchAll(ctx, s.historyIndexName(), "*", nil, false, nil, func(doc redis.Document) (bool, error) {
-		h, err := parseDocJSON[historyData](doc)
+	err := s.searchAll(ctx, s.historyIndexName(), "*", nil, false, func(key, body string) (bool, error) {
+		h, err := unmarshalJSONResult[historyData](body)
 		if err != nil {
 			return false, err
 		}
 		if h.TaskID == id {
-			keys = append(keys, doc.ID)
+			keys = append(keys, key)
 		}
 		return true, nil
 	})
