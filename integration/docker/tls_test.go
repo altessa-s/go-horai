@@ -48,30 +48,38 @@ func TestRedisTLS(t *testing.T) {
 	require.NoError(t, err)
 	port, err := c.MappedPort(t.Context(), "6379/tcp")
 	require.NoError(t, err)
+
 	client := redis.NewClient(&redis.Options{Addr: net.JoinHostPort(host, port.Port()), TLSConfig: config})
+
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	storagetest.Run(t, func(t testing.TB) horai.Store {
 		t.Helper()
+
 		s, err := redisstore.New(client, redisstore.WithKeyPrefix(namespace()))
 		require.NoError(t, err)
 		require.NoError(t, s.EnsureIndexes(t.Context()))
+
 		return s
 	})
 }
 
 func tlsMaterial(t testing.TB) ([]byte, []byte, *tls.Config) {
 	t.Helper()
+
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
+
 	cert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "localhost"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
 	require.NoError(t, err)
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
+
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(caFile, certPEM, 0600))
+
 	config := tlsutils.DefaultClientTLSConfigStrict("localhost")
 	config.RootCAs, err = tlsutils.BuildCAPool(false, caFile)
 	require.NoError(t, err)

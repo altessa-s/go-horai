@@ -36,6 +36,7 @@ func leaseSeconds(lease time.Duration) int64 {
 	if lease%time.Second != 0 {
 		sec++ // without adding to lease, which overflows near the maximum duration
 	}
+
 	return sec
 }
 
@@ -74,12 +75,14 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 	wg.Go(func() {
 		timer := time.NewTimer(leaseBase.Add(interval).Sub(s.opts.clock.Now()))
 		defer timer.Stop()
+
 		for {
 			select {
 			case <-hbCtx.Done():
 				return
 			case <-timer.C:
 			}
+
 			base, renewed, err := renew()
 			switch {
 			case hbCtx.Err() != nil:
@@ -93,6 +96,7 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 				s.logger.DebugContext(hbCtx, "task run no longer owned, stopping lease renewal",
 					slog.String("task_id", id),
 					slog.String("run_id", runID))
+
 				return
 			default:
 				leaseBase = base
@@ -114,7 +118,9 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 func (s *Scheduler) renewRunLease(ctx context.Context, id, runID string, leaseSec int64) (issued time.Time, renewed bool, err error) {
 	opCtx, opCancel := s.storageCtx(ctx)
 	defer opCancel()
+
 	issued = s.opts.clock.Now()
+
 	renewed, err = s.storage.RenewRun(opCtx, id, runID, issued.Unix()+leaseSec)
 	if err != nil && ctx.Err() == nil {
 		s.metrics.StorageError("renew_run")
@@ -123,6 +129,7 @@ func (s *Scheduler) renewRunLease(ctx context.Context, id, runID string, leaseSe
 			slog.String("run_id", runID),
 			slog.Any("error", err))
 	}
+
 	return issued, renewed, err
 }
 
@@ -147,14 +154,18 @@ func confirmRunOwnership(
 		if attempt == maxOwnershipConfirmations {
 			return leaseBase, false
 		}
+
 		base, renewed, err := renew()
 		if err != nil || !renewed {
 			return leaseBase, false
 		}
+
 		if attempt >= maxOwnershipConfirmations-1 && since(base) >= interval {
 			return leaseBase, false
 		}
+
 		leaseBase = base
 	}
+
 	return leaseBase, true
 }

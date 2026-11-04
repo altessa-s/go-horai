@@ -17,7 +17,9 @@ import (
 
 func TestInvalidPageLimitsBeforeIO(t *testing.T) {
 	t.Parallel()
+
 	s := new(store.Store)
+
 	for _, limit := range []int64{-1, 0, horai.MaxStorePageLimit + 1, math.MaxInt64} {
 		{
 			_, err := s.ListTasks(t.Context(), horai.TaskPage{Limit: limit}, nil)

@@ -17,13 +17,16 @@ func (s *Scheduler) runAbandoned(state *horai.TaskState, now, leaseSec int64) bo
 	if state.RunStartedAt == 0 {
 		return false
 	}
+
 	if runOwner(state.LastRunID) == s.opts.instanceID {
 		_, live := s.liveRuns.Load(state.LastRunID)
 		return !live
 	}
+
 	if state.RunLeaseID == state.LastRunID && state.RunLeaseUntil != 0 {
 		return now > state.RunLeaseUntil
 	}
+
 	return now > state.RunStartedAt+leaseSec
 }
 
@@ -51,10 +54,12 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to iterate tasks for stale recovery",
 			slog.Any("error", err))
+
 		return
 	}
 
 	stale := make([]*horai.TaskState, 0)
+
 	for _, state := range allStates {
 		if s.runAbandoned(state, now.Unix(), leaseSec) {
 			stale = append(stale, state)
@@ -83,6 +88,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 		s.logger.ErrorContext(opCtx, "failed to get stale task for recovery",
 			slog.String("task_id", id),
 			slog.Any("error", err))
+
 		return
 	}
 
@@ -104,6 +110,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 			state.NextRunAt = max(state.NextRunAt, now.Unix())
 		}
 	}
+
 	state.RunStartedAt = 0
 	state.RunLeaseUntil = 0
 	state.RunLeaseID = ""
@@ -115,8 +122,10 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 		s.logger.ErrorContext(opCtx, "failed to reset stale task",
 			slog.String("task_id", id),
 			slog.Any("error", err))
+
 		return
 	}
+
 	if !replaced {
 		return
 	}
@@ -142,11 +151,14 @@ func (s *Scheduler) fetchStates(ctx context.Context, capacity int) ([]*horai.Tas
 	defer cancel()
 
 	states := make([]*horai.TaskState, 0, capacity)
+
 	for state, err := range s.storage.UnfinishedRuns(opCtx) {
 		if err != nil {
 			return nil, err
 		}
+
 		states = append(states, state)
 	}
+
 	return states, nil
 }

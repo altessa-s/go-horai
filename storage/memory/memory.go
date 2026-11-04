@@ -37,6 +37,7 @@ func New(opts ...Option) (*Store, error) {
 	if o.maxHistoryPerTask <= 0 {
 		return nil, errors.New("history limit must be positive")
 	}
+
 	return &Store{tasks: make(map[string]*horai.TaskState), history: make(map[string][]*horai.TaskHistory), maxHist: o.maxHistoryPerTask}, nil
 }
 
@@ -66,9 +67,11 @@ func (m *Store) CreateTask(_ context.Context, state *horai.TaskState) (bool, err
 	if _, ok := m.tasks[state.ID]; ok {
 		return false, nil
 	}
+
 	next := cloneTaskState(state)
 	next.Revision = 1
 	m.tasks[state.ID] = next
+
 	return true, nil
 }
 
@@ -81,9 +84,11 @@ func (m *Store) ReplaceTaskIf(_ context.Context, state *horai.TaskState, expect 
 	if !ok || horai.FenceOf(cur) != expect {
 		return false, nil
 	}
+
 	next := cloneTaskState(state)
 	next.Revision = cur.Revision + 1
 	m.tasks[state.ID] = next
+
 	return true, nil
 }
 
@@ -95,6 +100,7 @@ func (m *Store) ClaimRun(_ context.Context, id string, claim horai.RunClaim) (bo
 	if err := claim.Validate(); err != nil {
 		return false, err
 	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -102,6 +108,7 @@ func (m *Store) ClaimRun(_ context.Context, id string, claim horai.RunClaim) (bo
 	if !ok || state.Status != horai.TaskStatusActive || state.RunStartedAt != 0 {
 		return false, nil
 	}
+
 	if state.NextRunAt != claim.NextRunAt || state.RunAt != claim.RunAt {
 		return false, nil
 	}
@@ -113,6 +120,7 @@ func (m *Store) ClaimRun(_ context.Context, id string, claim horai.RunClaim) (bo
 	state.RunLeaseID = claim.RunID
 	state.UpdatedAt = claim.StartedAt
 	state.Revision++
+
 	return true, nil
 }
 
@@ -142,11 +150,13 @@ func (m *Store) Tasks(_ context.Context) iter.Seq2[*horai.TaskState, error] {
 		for _, state := range m.tasks {
 			states = append(states, cloneTaskState(state))
 		}
+
 		slices.SortFunc(states, func(a, b *horai.TaskState) int {
 			return cmp.Compare(a.ID, b.ID)
 		})
 
 		m.mu.RUnlock()
+
 		for _, state := range states {
 			if !yield(state, nil) {
 				return
@@ -170,13 +180,16 @@ func (m *Store) DueTasks(_ context.Context, now int64) iter.Seq2[*horai.TaskStat
 			if state.Status != horai.TaskStatusActive || state.NextRunAt > now {
 				continue
 			}
+
 			states = append(states, cloneTaskState(state))
 		}
+
 		slices.SortFunc(states, func(a, b *horai.TaskState) int {
 			return cmp.Compare(a.ID, b.ID)
 		})
 
 		m.mu.RUnlock()
+
 		for _, state := range states {
 			if !yield(state, nil) {
 				return
@@ -225,11 +238,13 @@ func (m *Store) History(_ context.Context, id string) iter.Seq2[*horai.TaskHisto
 			clone := *h
 			sorted[i] = &clone
 		}
+
 		slices.SortFunc(sorted, func(a, b *horai.TaskHistory) int {
 			return cmp.Compare(b.StartedAt, a.StartedAt)
 		})
 
 		m.mu.RUnlock()
+
 		for _, h := range sorted {
 			clone := *h
 			if !yield(&clone, nil) {
@@ -262,6 +277,7 @@ func cloneTaskState(state *horai.TaskState) *horai.TaskState {
 	if state.Meta != nil {
 		clone.Meta = maps.Clone(state.Meta)
 	}
+
 	return &clone
 }
 
@@ -279,6 +295,7 @@ func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([
 			return nil, err
 		}
 	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -287,6 +304,7 @@ func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([
 	for _, state := range m.tasks {
 		states = append(states, cloneTaskState(state))
 	}
+
 	slices.SortFunc(states, func(a, b *horai.TaskState) int {
 		return cmp.Compare(a.ID, b.ID)
 	})
@@ -307,6 +325,7 @@ func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([
 
 	// With filter: scan and collect matching items up to limit+1
 	var results []*horai.TaskState
+
 	for _, state := range states[startIdx:] {
 		match := query.Match(f, state.QueryRecord())
 		if match {
@@ -316,6 +335,7 @@ func (m *Store) ListTasks(_ context.Context, pg horai.TaskPage, f query.Expr) ([
 			}
 		}
 	}
+
 	return results, nil
 }
 
@@ -334,6 +354,7 @@ func (m *Store) ListHistory(_ context.Context, taskID string, pg horai.HistoryPa
 			return nil, err
 		}
 	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -343,6 +364,7 @@ func (m *Store) ListHistory(_ context.Context, taskID string, pg horai.HistoryPa
 	}
 
 	sorted := sortedHistoryDesc(hist)
+
 	startIdx, ok := historyCursorStart(sorted, pg)
 	if !ok {
 		return nil, nil
@@ -357,22 +379,27 @@ func (m *Store) ListHistory(_ context.Context, taskID string, pg horai.HistoryPa
 			clone := *h
 			result = append(result, &clone)
 		}
+
 		return result, nil
 	}
 
 	// With filter: scan and collect matching items up to limit+1
 	var results []*horai.TaskHistory
+
 	for _, h := range sorted[startIdx:] {
 		match := query.Match(f, h.QueryRecord())
 		if !match {
 			continue
 		}
+
 		clone := *h
+
 		results = append(results, &clone)
 		if int64(len(results)) > pg.Limit {
 			break
 		}
 	}
+
 	return results, nil
 }
 
@@ -384,8 +411,10 @@ func sortedHistoryDesc(hist []*horai.TaskHistory) []*horai.TaskHistory {
 		if c := cmp.Compare(b.StartedAt, a.StartedAt); c != 0 {
 			return c
 		}
+
 		return cmp.Compare(b.ID, a.ID)
 	})
+
 	return sorted
 }
 
@@ -397,11 +426,13 @@ func historyCursorStart(sorted []*horai.TaskHistory, pg horai.HistoryPage) (star
 	if pg.AfterID == "" {
 		return 0, true
 	}
+
 	for i, h := range sorted {
 		if h.StartedAt < pg.AfterStartedAt || (h.StartedAt == pg.AfterStartedAt && h.ID < pg.AfterID) {
 			return i, true
 		}
 	}
+
 	return 0, false
 }
 
@@ -420,6 +451,7 @@ func ownsUnfinishedRun(state *horai.TaskState, runID string) bool {
 func (m *Store) FinishRun(_ context.Context, id, runID string, result horai.RunResult) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	state := m.tasks[id]
 	if !ownsUnfinishedRun(state, runID) {
 		return false, nil
@@ -434,20 +466,25 @@ func (m *Store) FinishRun(_ context.Context, id, runID string, result horai.RunR
 	case state.Status == horai.TaskStatusRunning:
 		state.Status = horai.TaskStatusActive
 	}
+
 	if !state.OneShot && state.Schedule == result.Schedule {
 		state.NextRunAt = result.NextRunAt
 	}
+
 	state.LastRunAt = result.StartedAt
 	state.RunStartedAt = 0
 	state.RunLeaseUntil = 0
 	state.RunLeaseID = ""
+
 	state.UpdatedAt = result.EndedAt
 	if result.Success {
 		state.Failures = 0
 	} else {
 		state.Failures++
 	}
+
 	state.Revision++
+
 	return true, nil
 }
 
@@ -456,13 +493,16 @@ func (m *Store) FinishRun(_ context.Context, id, runID string, result horai.RunR
 func (m *Store) RenewRun(_ context.Context, id, runID string, leaseUntil int64) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	state := m.tasks[id]
 	if !ownsUnfinishedRun(state, runID) {
 		return false, nil
 	}
+
 	state.RunLeaseUntil = leaseUntil
 	state.RunLeaseID = runID
 	state.Revision++
+
 	return true, nil
 }
 
@@ -470,14 +510,18 @@ func (m *Store) RenewRun(_ context.Context, id, runID string, leaseUntil int64) 
 func (m *Store) UnfinishedRuns(_ context.Context) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
 		m.mu.RLock()
+
 		var states []*horai.TaskState
+
 		for _, s := range m.tasks {
 			if s.RunStartedAt != 0 {
 				states = append(states, cloneTaskState(s))
 			}
 		}
+
 		m.mu.RUnlock()
 		slices.SortFunc(states, func(a, b *horai.TaskState) int { return cmp.Compare(a.ID, b.ID) })
+
 		for _, s := range states {
 			if !yield(s, nil) {
 				return
@@ -490,6 +534,8 @@ func (m *Store) UnfinishedRuns(_ context.Context) iter.Seq2[*horai.TaskState, er
 func (m *Store) DeleteHistory(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	delete(m.history, id)
+
 	return nil
 }

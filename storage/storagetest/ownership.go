@@ -32,6 +32,7 @@ func CreateTask(t *testing.T, store horai.Store) {
 	created, err := store.CreateTask(ctx, fresh("create"))
 	require.NoError(t, err)
 	require.True(t, created)
+
 	got, err := store.GetTask(ctx, "create")
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -48,6 +49,7 @@ func CreateTask(t *testing.T, store horai.Store) {
 	created, err = store.CreateTask(ctx, fresh("create"))
 	require.NoError(t, err)
 	require.False(t, created, "an existing task must not be replaced")
+
 	got, err = store.GetTask(ctx, "create")
 	require.NoError(t, err)
 	require.Equal(t, horai.TaskStatusRunning, got.Status)
@@ -56,6 +58,7 @@ func CreateTask(t *testing.T, store horai.Store) {
 	require.Equal(t, int64(2), got.Revision)
 
 	const creators = 8
+
 	var (
 		wins atomic.Int32
 		wg   sync.WaitGroup
@@ -68,6 +71,7 @@ func CreateTask(t *testing.T, store horai.Store) {
 			}
 		})
 	}
+
 	wg.Wait()
 	require.Equal(t, int32(1), wins.Load(), "exactly one concurrent creator must win")
 }
@@ -90,12 +94,14 @@ func RenewRun(t *testing.T, store horai.Store) {
 	claimed, err := store.ClaimRun(ctx, "renew", horai.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: "owner/run"})
 	require.NoError(t, err)
 	require.True(t, claimed)
+
 	before, err := store.GetTask(ctx, "renew")
 	require.NoError(t, err)
 
 	ok, err = store.RenewRun(ctx, "renew", "owner/run", 500)
 	require.NoError(t, err)
 	require.True(t, ok)
+
 	got, err := store.GetTask(ctx, "renew")
 	require.NoError(t, err)
 	require.Equal(t, int64(500), got.RunLeaseUntil)
@@ -118,9 +124,11 @@ func RenewRun(t *testing.T, store horai.Store) {
 		horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
 	require.True(t, finished)
+
 	ok, err = store.RenewRun(ctx, "renew", "owner/run", 900)
 	require.NoError(t, err)
 	require.False(t, ok, "a finished run must not be renewed")
+
 	got, err = store.GetTask(ctx, "renew")
 	require.NoError(t, err)
 	require.Zero(t, got.RunLeaseUntil, "finishing clears the lease")
@@ -135,6 +143,7 @@ func RenewRun(t *testing.T, store horai.Store) {
 	ok, err = store.RenewRun(ctx, "unbound", "legacy/run", 700)
 	require.NoError(t, err)
 	require.True(t, ok)
+
 	got, err = store.GetTask(ctx, "unbound")
 	require.NoError(t, err)
 	require.Equal(t, int64(700), got.RunLeaseUntil)
@@ -166,6 +175,7 @@ func ClaimRunRequiresFinishedRun(t *testing.T, store horai.Store) {
 		horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 300, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
 	require.True(t, finished)
+
 	claimed, err = store.ClaimRun(ctx, "unfinished", horai.RunClaim{NextRunAt: 300, StartedAt: 200, RunID: "second/run"})
 	require.NoError(t, err)
 	require.True(t, claimed, "the task is claimable once its run has finished")
@@ -193,6 +203,7 @@ func ClaimRunFencesOccurrence(t *testing.T, store horai.Store) {
 		horai.RunClaim{NextRunAt: 300, RunAt: 250, StartedAt: 300, RunID: "a/run", LeaseUntil: 900})
 	require.NoError(t, err)
 	require.True(t, claimed)
+
 	got, err := store.GetTask(ctx, "occurrence")
 	require.NoError(t, err)
 	require.Equal(t, int64(900), got.RunLeaseUntil, "the claim stores the first lease")
@@ -211,12 +222,14 @@ func RunIDRoundTrip(t *testing.T, store horai.Store) {
 	t.Helper()
 	ctx := t.Context()
 	runID := "pod \"a\"\a\té /run"
+
 	require.NoError(t, seed(ctx, store, &horai.TaskState{
 		ID: "run-id", Status: horai.TaskStatusActive, Schedule: "@every 1m", NextRunAt: 300}))
 
 	claimed, err := store.ClaimRun(ctx, "run-id", horai.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: runID, LeaseUntil: 400})
 	require.NoError(t, err)
 	require.True(t, claimed)
+
 	got, err := store.GetTask(ctx, "run-id")
 	require.NoError(t, err)
 	require.Equal(t, runID, got.LastRunID)
@@ -225,6 +238,7 @@ func RunIDRoundTrip(t *testing.T, store horai.Store) {
 	renewed, err := store.RenewRun(ctx, "run-id", runID, 500)
 	require.NoError(t, err)
 	require.True(t, renewed)
+
 	finished, err := store.FinishRun(ctx, "run-id", runID,
 		horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
@@ -258,6 +272,7 @@ func ClaimRunRejectsInvalidClaim(t *testing.T, store horai.Store) {
 		require.ErrorIs(t, claimErr, horai.ErrInvalidRunClaim, tc.name)
 		require.False(t, claimed, tc.name)
 	}
+
 	got, err := store.GetTask(ctx, "invalid")
 	require.NoError(t, err)
 	require.Equal(t, before, got, "a rejected claim must not write")
@@ -279,6 +294,7 @@ func OwnedRunAnyNonZeroStart(t *testing.T, store horai.Store) {
 	renewed, err := store.RenewRun(ctx, "negative", "owner/run", 500)
 	require.NoError(t, err)
 	require.True(t, renewed)
+
 	finished, err := store.FinishRun(ctx, "negative", "owner/run",
 		horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)

@@ -29,11 +29,13 @@ type recordingConn struct {
 func (c *recordingConn) Exec(_ context.Context, q string, a ...any) error {
 	c.stmt = q
 	c.args = a
+
 	return c.err
 }
 func (c *recordingConn) Query(_ context.Context, q string, a ...any) (driver.Rows, error) {
 	c.stmt = q
 	c.args = a
+
 	return c.rows, c.err
 }
 
@@ -49,20 +51,24 @@ func (r *historyRows) Scan(dest ...any) error {
 	if r.scanErr != nil {
 		return r.scanErr
 	}
+
 	for i, v := range []any{"h", "task", "node/run", "failure", int64(1), int64(2), int64(1000), false} {
 		reflect.ValueOf(dest[i]).Elem().Set(reflect.ValueOf(v))
 	}
+
 	return nil
 }
 func (r *historyRows) Close() error { r.closed = true; return nil }
 func (r *historyRows) Err() error   { return r.iterErr }
 func TestHistoryCommandsAndMapping(t *testing.T) {
 	t.Parallel()
+
 	c := &recordingConn{}
 	s, err := New(c, WithTableName("history"), WithCluster("cluster"), WithTTL(time.Hour))
 	require.NoError(t, err)
 	require.NoError(t, s.EnsureSchema(t.Context()))
 	require.Contains(t, c.stmt, "TTL")
+
 	h := &horai.TaskHistory{ID: "h", TaskID: "task", RunID: "node/run", Error: "failure", StartedAt: 1, EndedAt: 2, DurationMs: 1000}
 	require.NoError(t, s.AddHistory(t.Context(), h))
 	require.Equal(t, []any{"h", "task", "node/run", "failure", int64(1), int64(2), int64(1000), false}, c.args)
@@ -71,11 +77,14 @@ func TestHistoryCommandsAndMapping(t *testing.T) {
 	require.NoError(t, s.CleanupHistory(t.Context(), 3))
 	require.Equal(t, []any{int64(3)}, c.args)
 	c.rows = &historyRows{}
+
 	for got, err := range s.History(t.Context(), "task") {
 		require.NoError(t, err)
 		require.Equal(t, h, got)
+
 		break
 	}
+
 	require.True(t, c.rows.(*historyRows).closed)
 	c.rows = &historyRows{}
 	got, err := s.ListHistory(t.Context(), "task", horai.HistoryPage{AfterID: "after", AfterStartedAt: 5, Limit: 10}, query.Cmp{Field: "success", Op: query.Eq, Value: false})
@@ -87,6 +96,7 @@ func TestHistoryCommandsAndMapping(t *testing.T) {
 }
 func TestHistoryErrorMapping(t *testing.T) {
 	t.Parallel()
+
 	failure := errors.New("driver failure")
 	c := &recordingConn{err: failure}
 	s, err := New(c)
@@ -96,6 +106,7 @@ func TestHistoryErrorMapping(t *testing.T) {
 	require.ErrorIs(t, s.DeleteHistory(t.Context(), "task"), failure)
 	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 1}, nil)
 	require.ErrorIs(t, err, failure)
+
 	for _, rows := range []*historyRows{{scanErr: failure}, {iterErr: failure}} {
 		c.err = nil
 		c.rows = rows
@@ -103,10 +114,12 @@ func TestHistoryErrorMapping(t *testing.T) {
 		require.ErrorIs(t, err, failure)
 		require.True(t, rows.closed)
 	}
+
 	for _, args := range [][3]string{{"bad-name", "MergeTree", ""}, {"good", "MergeTree", "bad cluster"}, {"good", "bad engine", ""}} {
 		_, err := SchemaDDL(args[0], args[1], args[2], 0)
 		require.Error(t, err)
 	}
+
 	_, err = New(nil)
 	require.ErrorIs(t, err, ErrNoConn)
 	_, err = New(c, WithTableName("bad-name"))

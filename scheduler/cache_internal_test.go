@@ -18,15 +18,19 @@ import (
 
 func TestScheduleCacheFollowsRegistration(t *testing.T) {
 	t.Parallel()
+
 	st, err := memory.New()
 	require.NoError(t, err)
 	s, err := New(st)
 	require.NoError(t, err)
+
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	for _, spec := range []string{"@every 1m", "@every 2m"} {
 		require.NoError(t, s.Register(t.Context(), task.Config{ID: "id", Schedule: spec, Func: func(context.Context) error { return nil }}))
 		require.Len(t, s.tasks, 1)
 	}
+
 	require.Equal(t, now.Add(2*time.Minute), s.calculateNextRun(t.Context(), now, &horai.TaskState{ID: "id", Schedule: "@every 2m"}))
 	// A different persisted schedule must never reuse the local registration's parse.
 	require.Equal(t, now.Add(3*time.Minute), s.calculateNextRun(t.Context(), now, &horai.TaskState{ID: "id", Schedule: "@every 3m"}))

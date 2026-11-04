@@ -13,6 +13,7 @@ import (
 
 func TestSearchReplyIDs(t *testing.T) {
 	t.Parallel()
+
 	for _, raw := range []any{
 		[]any{int64(2), "a", "b"},
 		map[any]any{"total_results": int64(2), "results": []any{map[any]any{"id": "a", "extra_attributes": nil, "values": []any{}}, map[string]any{"id": "b"}}},
@@ -21,6 +22,7 @@ func TestSearchReplyIDs(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, redis.FTSearchResult{Total: 2, Docs: []redis.Document{{ID: "a"}, {ID: "b"}}}, got)
 	}
+
 	for _, raw := range []any{[]any{int64(0)}, map[string]any{"total_results": int64(0), "results": []any{}}} {
 		got, err := parseSearchReply(raw)
 		require.NoError(t, err)
@@ -30,6 +32,7 @@ func TestSearchReplyIDs(t *testing.T) {
 
 func TestSearchReplyMalformed(t *testing.T) {
 	t.Parallel()
+
 	for _, raw := range []any{
 		nil, []any{}, []any{"bad"}, []any{int64(-1)}, []any{int64(1), 7},
 		map[any]any{1: 2}, map[any]any{"total_results": "bad"},

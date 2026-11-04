@@ -69,7 +69,9 @@ func (s *Store) backfillNextRunAt(ctx context.Context) error {
 	}
 
 	byID := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+
 	var idle []string // the page of the previous round, when it wrote nothing
+
 	for {
 		page, err := s.client.FTSearchWithArgs(ctx, idx, missingNextRunQuery, &redis.FTSearchOptions{
 			NoContent: true, LimitOffset: 0, Limit: searchPageSize, SortBy: byID,
@@ -77,19 +79,25 @@ func (s *Store) backfillNextRunAt(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
 		if len(page.Docs) == 0 {
 			return nil
 		}
+
 		ids := make([]string, 0, len(page.Docs))
 		wrote := false
+
 		for _, doc := range page.Docs {
 			ids = append(ids, doc.ID)
+
 			n, err := backfillNextRun.Run(ctx, s.client, []string{doc.ID}).Int64()
 			if err != nil {
 				return coreerrs.Wrapf(err, "backfill %q", doc.ID)
 			}
+
 			wrote = wrote || n == 1
 		}
+
 		switch {
 		case wrote:
 			idle = nil
@@ -109,9 +117,11 @@ func (s *Store) waitForIndex(ctx context.Context, idx string) error {
 		if err != nil {
 			return err
 		}
+
 		if info.Indexing == 0 {
 			return nil
 		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

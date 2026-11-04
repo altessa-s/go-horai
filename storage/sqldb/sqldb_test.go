@@ -36,10 +36,12 @@ func TestNewValidation(t *testing.T) {
 	require.Error(t, err)
 	_, err = sqldb.New(db, "oracle")
 	require.ErrorIs(t, err, sqldb.ErrUnsupportedDialect)
+
 	for _, name := range []string{"t; DROP TABLE x", "a.b.c", "1tasks", `"quoted"`, "tab le", strings.Repeat("t", 64), "s." + strings.Repeat("t", 64)} {
 		_, err = sqldb.New(db, sqldb.Postgres, sqldb.WithTasksTable(name))
 		require.ErrorIs(t, err, sqldb.ErrInvalidTableName, name)
 	}
+
 	_, err = sqldb.New(db, sqldb.MySQL, sqldb.WithTasksTable("app.sched_tasks"), sqldb.WithHistoryTable("sched_history"))
 	require.NoError(t, err)
 	_, err = sqldb.New(db, sqldb.Postgres, sqldb.WithTasksTable(strings.Repeat("t", 63)))
@@ -60,16 +62,19 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 	// Two tables, the column probe and one ALTER per added column (the fake
 	// reports none).
 	require.Len(t, calls, 8)
+
 	for _, c := range calls {
 		require.NotContains(t, c.Query, "VERSION()")
 		require.NotContains(t, c.Query, "COLLATE")
 		require.NotContains(t, c.Query, "CHARACTER SET")
 		require.NotRegexp(t, `\b(VARCHAR|TEXT|MEDIUMTEXT|LONGTEXT)\b`, c.Query)
 	}
+
 	for _, want := range []string{"id              VARBINARY(1020)", "schedule        VARBINARY(4096)", "description     MEDIUMBLOB",
 		"meta            MEDIUMBLOB", "run_lease_id    VARBINARY(1020)", "last_run_id     VARBINARY(1020)"} {
 		require.Contains(t, calls[0].Query, want)
 	}
+
 	for _, want := range []string{"id          VARBINARY(1020)", "task_id     VARBINARY(1020)", "run_id      VARBINARY(1020)", "error       LONGBLOB"} {
 		require.Contains(t, calls[1].Query, want)
 	}
@@ -84,17 +89,20 @@ func TestEnsureSchemaIndexNamesFitIdentifierLimit(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(t.Context()))
 
 	names := map[string]bool{}
+
 	for _, c := range fake.Calls() {
 		for _, m := range indexNameRE.FindAllStringSubmatch(c.Query, -1) {
 			require.LessOrEqual(t, len(m[1]), 63, m[1])
 			names[m[1]] = true
 		}
 	}
+
 	require.Len(t, names, 4, "truncated index names must stay distinct")
 }
 
 func TestPlaceholderStyle(t *testing.T) {
 	t.Parallel()
+
 	for _, d := range []sqldb.Dialect{sqldb.Postgres, sqldb.MySQL} {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
@@ -134,10 +142,12 @@ func TestFilteredTaskPageNumbersPlaceholdersAfterTheFilter(t *testing.T) {
 	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Columns: taskCols()} })
 	store, err := sqldb.New(db, sqldb.Postgres)
 	require.NoError(t, err)
+
 	node := query.And{query.Cmp{Field: "status", Op: query.Eq, Value: int64(1)}, query.Cmp{Field: "priority", Op: query.In, Value: []int64{1, 2}}}
 
 	_, err = store.ListTasks(t.Context(), horai.TaskPage{AfterID: "k", Limit: 5}, node)
 	require.NoError(t, err)
+
 	c := fake.Calls()[0]
 	require.Contains(t, c.Query, "id > $4")
 	require.Contains(t, c.Query, "LIMIT $5")
@@ -147,6 +157,7 @@ func TestFilteredTaskPageNumbersPlaceholdersAfterTheFilter(t *testing.T) {
 		AfterID: "h", Limit: 5, AfterStartedAt: 9,
 	}, nil)
 	require.NoError(t, err)
+
 	c = fake.Calls()[1]
 	require.Contains(t, c.Query, "task_id = $1 AND (started_at < $2 OR (started_at = $3 AND id < $4))")
 	require.Contains(t, c.Query, "LIMIT $5")
@@ -154,11 +165,14 @@ func TestFilteredTaskPageNumbersPlaceholdersAfterTheFilter(t *testing.T) {
 
 func TestResultMapping(t *testing.T) {
 	t.Parallel()
+
 	var affected int64
+
 	db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
 		if strings.HasPrefix(q, "SELECT") {
 			return testhelpers.FakeSQLReply{Columns: taskCols()} // no rows
 		}
+
 		return testhelpers.FakeSQLReply{Affected: affected}
 	})
 	store, err := sqldb.New(db, sqldb.MySQL)
@@ -200,8 +214,10 @@ func TestResultMapping(t *testing.T) {
 // the task exists afterwards.
 func TestMySQLCreateTaskResolvesInsertFailure(t *testing.T) {
 	t.Parallel()
+
 	row := []driver.Value{"a", "", int64(1), int64(0), "", int64(0), int64(0), "", int64(0), int64(0), "", int64(0), int64(0),
 		false, false, false, false, "{}", int64(0), int64(0), int64(1)}
+
 	for _, tc := range []struct {
 		name   string
 		exists bool
@@ -222,10 +238,12 @@ func TestMySQLCreateTaskResolvesInsertFailure(t *testing.T) {
 			require.NoError(t, err)
 			created, err := store.CreateTask(t.Context(), &horai.TaskState{ID: "a"})
 			require.False(t, created)
+
 			if tc.exists {
 				require.NoError(t, err)
 				return
 			}
+
 			require.ErrorIs(t, err, errBoom)
 		})
 	}
@@ -243,12 +261,15 @@ func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
 		store, err := sqldb.New(db, sqldb.Postgres)
 		require.NoError(t, err)
 		require.NoError(t, store.EnsureSchema(t.Context()))
+
 		var alters []string
+
 		for _, c := range fake.Calls() {
 			if strings.HasPrefix(c.Query, "ALTER TABLE") {
 				alters = append(alters, c.Query)
 			}
 		}
+
 		require.Equal(t, []string{`ALTER TABLE "scheduler_tasks" ADD COLUMN IF NOT EXISTS run_lease_until BIGINT NOT NULL DEFAULT 0, ` +
 			`ADD COLUMN IF NOT EXISTS run_lease_id TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS run_at BIGINT NOT NULL DEFAULT 0`}, alters)
 	})
@@ -259,20 +280,25 @@ func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
 			case strings.Contains(q, "information_schema"):
 				return testhelpers.FakeSQLReply{Columns: []string{"COLUMN_NAME"}, Rows: [][]driver.Value{{"id"}, {"RUN_LEASE_UNTIL"}}}
 			}
+
 			return testhelpers.FakeSQLReply{}
 		})
 		store, err := sqldb.New(db, sqldb.MySQL, sqldb.WithTasksTable("app.sched_tasks"))
 		require.NoError(t, err)
 		require.NoError(t, store.EnsureSchema(t.Context()))
+
 		var alters []string
+
 		for _, c := range fake.Calls() {
 			if strings.Contains(c.Query, "information_schema.COLUMNS") {
 				require.Equal(t, []any{"app", "sched_tasks"}, c.Args)
 			}
+
 			if strings.HasPrefix(c.Query, "ALTER TABLE") {
 				alters = append(alters, c.Query)
 			}
 		}
+
 		require.Equal(t, []string{
 			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_lease_id VARBINARY(1020) NOT NULL DEFAULT ''",
 			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_at BIGINT NOT NULL DEFAULT 0",
@@ -287,6 +313,7 @@ func TestWriteErrorsAreWrapped(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.ClaimRun(t.Context(), "a", horai.RunClaim{StartedAt: 1, RunID: "r"})
 	require.ErrorIs(t, err, errBoom)
+
 	for _, err := range store.Tasks(t.Context()) {
 		require.ErrorIs(t, err, errBoom)
 	}
@@ -294,6 +321,7 @@ func TestWriteErrorsAreWrapped(t *testing.T) {
 
 func TestIteratorClosesRowsOnBreak(t *testing.T) {
 	t.Parallel()
+
 	row := []driver.Value{"a", "", int64(1), int64(0), "", int64(0), int64(0), "", int64(0), int64(0), "", int64(0), int64(0),
 		false, false, false, false, `{"k":"v"}`, int64(0), int64(0), int64(1)}
 	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
@@ -305,8 +333,10 @@ func TestIteratorClosesRowsOnBreak(t *testing.T) {
 	for state, err := range store.Tasks(t.Context()) {
 		require.NoError(t, err)
 		require.Equal(t, map[string]string{"k": "v"}, state.Meta)
+
 		break
 	}
+
 	require.Equal(t, 1, fake.RowsClosed())
 }
 
@@ -324,6 +354,7 @@ func TestOverlongValuesAreRejected(t *testing.T) {
 	limit := strings.Repeat("a", sqldb.MaxIDLength)
 
 	require.NoError(t, createState(store, ctx, &horai.TaskState{ID: limit}))
+
 	writes := len(fake.Calls())
 
 	// One trailing space past the limit: PostgreSQL would trim it and hit the
@@ -361,18 +392,23 @@ func TestMySQLFinishRunAssignmentOrder(t *testing.T) {
 	q := fake.Calls()[0].Query
 	set := q[strings.Index(q, " SET ")+5 : strings.Index(q, " WHERE ")]
 	starts := setAssignmentRE.FindAllStringSubmatchIndex(set, -1)
+
 	var assigned []string
+
 	for k, m := range starts {
 		end := len(set)
 		if k+1 < len(starts) {
 			end = starts[k+1][0]
 		}
+
 		col, expr := set[m[2]:m[3]], set[m[1]:end]
 		for _, prev := range assigned {
 			require.NotContains(t, expr, prev, "%s reads %s, which is assigned earlier", col, prev)
 		}
+
 		assigned = append(assigned, col)
 	}
+
 	require.Contains(t, assigned, "status")
 	require.Contains(t, assigned, "next_run_at")
 }
@@ -390,9 +426,11 @@ func TestPostgresSchemaLocksHistoryFirst(t *testing.T) {
 
 	calls := fake.Calls()
 	require.Equal(t, 1, fake.Commits())
+
 	lastHistory, firstTasks := -1, len(calls)
 	for i, c := range calls {
 		require.True(t, c.InTx, c.Query)
+
 		switch {
 		case strings.Contains(c.Query, `"scheduler_history"`):
 			lastHistory = i
@@ -400,6 +438,7 @@ func TestPostgresSchemaLocksHistoryFirst(t *testing.T) {
 			firstTasks = min(firstTasks, i)
 		}
 	}
+
 	require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[0].Query)
 	require.Less(t, lastHistory, firstTasks, "every history statement precedes every tasks statement")
 }

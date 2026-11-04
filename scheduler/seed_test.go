@@ -16,18 +16,22 @@ func seedState(s horai.TaskStore, ctx context.Context, v *horai.TaskState) error
 	if err != nil {
 		return err
 	}
+
 	var ok bool
 	if old == nil {
 		ok, err = s.CreateTask(ctx, v)
 	} else {
 		ok, err = s.ReplaceTaskIf(ctx, v, horai.FenceOf(old))
 	}
+
 	if err != nil {
 		return err
 	}
+
 	if !ok {
 		return horai.ErrConcurrentUpdate
 	}
+
 	return nil
 }
 

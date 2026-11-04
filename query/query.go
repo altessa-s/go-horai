@@ -21,14 +21,23 @@ type Field string
 type Op string
 
 const (
-	Eq       Op = "eq"
-	Ne       Op = "ne"
-	Lt       Op = "lt"
-	Le       Op = "le"
-	Gt       Op = "gt"
-	Ge       Op = "ge"
-	In       Op = "in"
-	Prefix   Op = "prefix"
+	// Eq matches a field equal to the value.
+	Eq Op = "eq"
+	// Ne matches a field not equal to the value.
+	Ne Op = "ne"
+	// Lt matches a field less than the value.
+	Lt Op = "lt"
+	// Le matches a field less than or equal to the value.
+	Le Op = "le"
+	// Gt matches a field greater than the value.
+	Gt Op = "gt"
+	// Ge matches a field greater than or equal to the value.
+	Ge Op = "ge"
+	// In matches a field equal to one element of the value slice.
+	In Op = "in"
+	// Prefix matches a string field that starts with the value.
+	Prefix Op = "prefix"
+	// Contains matches a string field that contains the value.
 	Contains Op = "contains"
 )
 
@@ -85,6 +94,7 @@ func kind(f Field) string {
 	case "skipNextRun", "disableHistory", "unmanaged", "oneShot", "success":
 		return boolKind
 	}
+
 	return ""
 }
 
@@ -96,14 +106,17 @@ func validate(e Expr, fields []Field, depth int, n *int) error {
 	if depth > 32 || *n > 1024 {
 		return fmt.Errorf("%w: expression limit", ErrInvalid)
 	}
+
 	children := func(es []Expr) error {
 		for _, v := range es {
 			if err := validate(v, fields, depth+1, n); err != nil {
 				return err
 			}
 		}
+
 		return nil
 	}
+
 	switch v := e.(type) {
 	case nil:
 		return nil
@@ -124,17 +137,22 @@ func validateComparison(v Cmp, fields []Field) error {
 	if !slices.Contains(fields, v.Field) || kind(v.Field) == "" {
 		return fmt.Errorf("%w: field %q", ErrInvalid, v.Field)
 	}
+
 	if !slices.Contains([]Op{Eq, Ne, Lt, Le, Gt, Ge, In, Prefix, Contains}, v.Op) {
 		return fmt.Errorf("%w: operator %q", ErrInvalid, v.Op)
 	}
+
 	k := kind(v.Field)
 	if (v.Op == Prefix || v.Op == Contains) && k != stringKind {
 		return fmt.Errorf("%w: string operator", ErrInvalid)
 	}
+
 	if k == boolKind && v.Op != Eq && v.Op != Ne && v.Op != In {
 		return fmt.Errorf("%w: boolean operator", ErrInvalid)
 	}
+
 	valid := false
+
 	if v.Op == In {
 		switch x := v.Value.(type) {
 		case []string:
@@ -154,9 +172,11 @@ func validateComparison(v Cmp, fields []Field) error {
 			valid = k == boolKind
 		}
 	}
+
 	if !valid {
 		return fmt.Errorf("%w: value type for %q", ErrInvalid, v.Field)
 	}
+
 	return nil
 }
 
@@ -166,6 +186,7 @@ func Match(e Expr, r Record) bool {
 	if Validate(e, fields) != nil {
 		return false
 	}
+
 	return match(e, r)
 }
 func match(e Expr, r Record) bool {
@@ -178,6 +199,7 @@ func match(e Expr, r Record) bool {
 				return false
 			}
 		}
+
 		return true
 	case Or:
 		for _, c := range v {
@@ -185,12 +207,14 @@ func match(e Expr, r Record) bool {
 				return true
 			}
 		}
+
 		return false
 	case Not:
 		return !match(v.Expr, r)
 	case Cmp:
 		return matchComparison(v, r)
 	}
+
 	return false
 }
 
@@ -206,28 +230,35 @@ func matchComparison(v Cmp, r Record) bool {
 			a = false
 		}
 	}
+
 	if v.Op == In {
 		return member(v.Value, a)
 	}
+
 	c := 0
+
 	switch x := a.(type) {
 	case string:
 		y, ok := v.Value.(string)
 		if !ok {
 			return false
 		}
+
 		if v.Op == Prefix {
 			return strings.HasPrefix(x, y)
 		}
+
 		if v.Op == Contains {
 			return strings.Contains(x, y)
 		}
+
 		c = strings.Compare(x, y)
 	case int64:
 		y, ok := v.Value.(int64)
 		if !ok {
 			return false
 		}
+
 		if x < y {
 			c = -1
 		} else if x > y {
@@ -238,12 +269,14 @@ func matchComparison(v Cmp, r Record) bool {
 		if !ok {
 			return false
 		}
+
 		if x != y {
 			c = 1
 		}
 	default:
 		return false
 	}
+
 	switch v.Op {
 	case Eq:
 		return c == 0
@@ -260,6 +293,7 @@ func matchComparison(v Cmp, r Record) bool {
 	case In, Prefix, Contains:
 		return false
 	}
+
 	return false
 }
 

@@ -45,16 +45,20 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 	if err := validateTaskConfig(cfg); err != nil {
 		return err
 	}
+
 	if cfg.Priority == schedtask.PriorityUnspecified {
 		cfg.Priority = schedtask.PriorityNormal
 	}
+
 	cfg.Meta = maps.Clone(cfg.Meta)
 	isOneShot := !cfg.RunAt.IsZero()
 
 	// Validate schedule for periodic tasks
 	var sched schedule.Schedule
+
 	if !isOneShot {
 		var err error
+
 		sched, err = schedule.Parse(cfg.Schedule)
 		if err != nil {
 			return err
@@ -69,9 +73,11 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 	if !isOneShot && sched.Next(now).IsZero() {
 		return fmt.Errorf("%w: schedule has no future activation", schedule.ErrInvalid)
 	}
+
 	nextRun := firstRun(cfg, sched, now)
 
 	nowUnix := now.Unix()
+
 	var runAt int64
 	if isOneShot {
 		runAt = cfg.RunAt.Unix()
@@ -117,6 +123,7 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 	} else {
 		logAttrs = append(logAttrs, slog.String("schedule", cfg.Schedule), slog.Bool("run_on_start", cfg.RunOnStart))
 	}
+
 	s.logger.InfoContext(ctx, "task registered", logAttrs...)
 
 	return nil
@@ -129,6 +136,7 @@ func validateTaskConfig(cfg schedtask.Config) error {
 	if cfg.Timeout < 0 || cfg.Priority < schedtask.PriorityUnspecified || cfg.Priority > schedtask.PriorityCritical {
 		return errors.New("invalid task options")
 	}
+
 	if cfg.ID == "" {
 		return errors.New("task ID cannot be empty")
 	}
@@ -152,6 +160,7 @@ func validateTaskConfig(cfg schedtask.Config) error {
 	if !isOneShot && cfg.Schedule == "" {
 		return errors.New("task schedule is required (e.g., '@every 5m', '0 */5 * * * *')")
 	}
+
 	return nil
 }
 
@@ -163,11 +172,14 @@ func firstRun(cfg schedtask.Config, sched schedule.Schedule, now time.Time) time
 		if cfg.RunAt.Before(now) {
 			return now
 		}
+
 		return cfg.RunAt
 	}
+
 	if cfg.RunOnStart {
 		return now
 	}
+
 	return sched.Next(now)
 }
 
@@ -201,13 +213,16 @@ func (s *Scheduler) saveRegistered(
 				return coreerrs.WrapOperation(err, "save task state")
 			}
 		}
+
 		if saved {
 			return nil
 		}
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
+
 	return horai.ErrConcurrentUpdate
 }
 
@@ -228,6 +243,7 @@ func (s *Scheduler) mergeRegistered(
 	state.RunStartedAt = existing.RunStartedAt   // keeps an in-flight run finishable
 	state.RunLeaseUntil = existing.RunLeaseUntil // keeps an in-flight run's lease
 	state.RunLeaseID = existing.RunLeaseID
+
 	state.Failures = existing.Failures
 	if isOneShot {
 		// One-shot: always use computed nextRun
@@ -245,6 +261,7 @@ func (s *Scheduler) mergeRegistered(
 			}
 		}
 	}
+
 	switch {
 	case existing.Status == horai.TaskStatusCompleted && !isOneShot && !existing.OneShot && existing.Schedule == cfg.Schedule:
 		// Exhaustion is terminal for an unchanged periodic schedule.
@@ -261,6 +278,7 @@ func (s *Scheduler) mergeRegistered(
 		// Preserve status if not active
 		state.Status = existing.Status
 	}
+
 	return state
 }
 
@@ -289,30 +307,39 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	lock := s.registrationLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+
 	opCtx, opCancel := s.storageCtx(ctx)
 	defer opCancel()
+
 	state, err := s.storage.GetTask(opCtx, id)
 	if err != nil {
 		return err
 	}
+
 	s.mu.RLock()
 	_, registered := s.tasks[id]
 	s.mu.RUnlock()
+
 	if state == nil && !registered {
 		return horai.ErrTaskNotRegistered
 	}
+
 	if err := s.storage.DeleteTask(opCtx, id); err != nil {
 		return err
 	}
+
 	s.mu.Lock()
 	delete(s.tasks, id)
 	n := len(s.tasks)
 	s.mu.Unlock()
 	s.metrics.RegisteredChanged(n)
+
 	delCtx, cancel := s.storageCtx(ctx)
 	defer cancel()
+
 	if err := s.history.DeleteHistory(delCtx, id); err != nil {
 		s.logger.WarnContext(ctx, "failed to delete task history", slog.String("task_id", id), slog.Any("error", err))
 	}
+
 	return nil
 }

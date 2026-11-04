@@ -34,6 +34,7 @@ func (c *ctxAwareStorage) GetTask(ctx context.Context, id string) (*horai.TaskSt
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
 	return c.Store.GetTask(ctx, id)
 }
 
@@ -41,6 +42,7 @@ func (c *ctxAwareStorage) UpsertTask(ctx context.Context, state *horai.TaskState
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
 	return seedState(c.Store, ctx, state)
 }
 
@@ -48,6 +50,7 @@ func (c *ctxAwareStorage) AddHistory(ctx context.Context, h *horai.TaskHistory) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
 	return c.Store.AddHistory(ctx, h)
 }
 
@@ -63,6 +66,7 @@ func (h *hangingStorage) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, 
 	if !h.hang.Load() {
 		return h.Store.Tasks(ctx)
 	}
+
 	return blockUntilDone[*horai.TaskState](ctx)
 }
 
@@ -70,6 +74,7 @@ func (h *hangingStorage) DueTasks(ctx context.Context, now int64) iter.Seq2[*hor
 	if !h.hang.Load() {
 		return h.Store.DueTasks(ctx, now)
 	}
+
 	return blockUntilDone[*horai.TaskState](ctx)
 }
 
@@ -77,6 +82,7 @@ func (h *hangingStorage) DueTasks(ctx context.Context, now int64) iter.Seq2[*hor
 func blockUntilDone[T any](ctx context.Context) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		<-ctx.Done()
+
 		var zero T
 		yield(zero, ctx.Err())
 	}
@@ -92,7 +98,6 @@ func blockUntilDone[T any](ctx context.Context) iter.Seq2[T, error] {
 func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := &ctxAwareStorage{Store: mustNewMemory(t, 100)}
 		s := engine(t, storage, scheduler.WithTickInterval(20*time.Millisecond))
 
@@ -100,7 +105,9 @@ func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 		require.NoError(t, s.Start(ctx))
 
 		var once sync.Once
+
 		started := make(chan struct{})
+
 		require.NoError(t, s.Register(ctx, schedtask.Config{
 			ID:         "long-running",
 			Schedule:   "@every 1h",
@@ -109,6 +116,7 @@ func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 				once.Do(func() { close(started) })
 				// Released when Stop cancels the lifecycle context.
 				<-taskCtx.Done()
+
 				return nil
 			},
 		}))
@@ -120,8 +128,10 @@ func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 		}
 
 		detached := context.WithoutCancel(ctx)
+
 		stopCtx, cancel := context.WithTimeout(detached, 2*time.Second)
 		defer cancel()
+
 		require.NoError(t, s.Stop(stopCtx))
 
 		state, err := storage.GetTask(detached, "long-running")
@@ -131,7 +141,6 @@ func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 			"task interrupted by Stop must be written back as active, not left running")
 		require.Zero(t, state.RunStartedAt,
 			"RunStartedAt must be cleared so stale recovery does not resurrect the run")
-
 	})
 }
 
@@ -145,7 +154,6 @@ func TestScheduler_Stop_PersistsFinalState(t *testing.T) {
 func TestScheduler_StorageTimeout_TickLoopRecovers(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := &hangingStorage{Store: mustNewMemory(t, 100)}
 		s := engine(t, storage,
 			scheduler.WithTickInterval(20*time.Millisecond),
@@ -156,12 +164,14 @@ func TestScheduler_StorageTimeout_TickLoopRecovers(t *testing.T) {
 		t.Cleanup(func() {
 			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		})
 
 		storage.hang.Store(true)
 
 		var runs atomic.Int32
+
 		require.NoError(t, s.Register(ctx, schedtask.Config{
 			ID:         "recovers",
 			Schedule:   "@every 1h",
@@ -181,7 +191,6 @@ func TestScheduler_StorageTimeout_TickLoopRecovers(t *testing.T) {
 		require.Eventually(t, func() bool { return runs.Load() > 0 },
 			2*time.Second, 20*time.Millisecond,
 			"tick loop did not resume after the storage recovered")
-
 	})
 }
 
@@ -199,7 +208,6 @@ func TestScheduler_StorageTimeout_TickLoopRecovers(t *testing.T) {
 func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		const (
 			tickInterval  = 20 * time.Millisecond
 			observedTicks = 40
@@ -218,6 +226,7 @@ func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
 		require.NoError(t, s.Start(ctx))
 
 		var once sync.Once
+
 		hogRunning := make(chan struct{})
 		release := make(chan struct{})
 
@@ -232,6 +241,7 @@ func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
 			Func: func(context.Context) error {
 				once.Do(func() { close(hogRunning) })
 				<-release
+
 				return nil
 			},
 		}))
@@ -254,20 +264,23 @@ func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
 
 		// Let the starved task's first dispatch settle onto the semaphore.
 		time.Sleep(5 * tickInterval)
+
 		baseline := runtime.NumGoroutine()
 
 		time.Sleep(observedTicks * tickInterval)
+
 		growth := runtime.NumGoroutine() - baseline
 
 		close(release)
+
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
+
 		require.NoError(t, s.Stop(stopCtx))
 
 		require.Lessf(t, growth, maxGrowth,
 			"goroutine count grew by %d over %d ticks; a starved task must hold one waiter, not one per tick",
 			growth, observedTicks)
-
 	})
 }
 
@@ -277,12 +290,13 @@ func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
 func TestScheduler_Trigger_RejectsSecondDispatch(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		s, ctx := startScheduler(t)
 
 		var once sync.Once
+
 		started := make(chan struct{})
 		release := make(chan struct{})
+
 		t.Cleanup(func() { close(release) })
 
 		require.NoError(t, s.Register(ctx, schedtask.Config{
@@ -292,6 +306,7 @@ func TestScheduler_Trigger_RejectsSecondDispatch(t *testing.T) {
 			Func: func(context.Context) error {
 				once.Do(func() { close(started) })
 				<-release
+
 				return nil
 			},
 		}))
@@ -303,7 +318,6 @@ func TestScheduler_Trigger_RejectsSecondDispatch(t *testing.T) {
 		}
 
 		require.ErrorIs(t, s.Trigger(ctx, "single-slot"), horai.ErrTaskAlreadyDispatched)
-
 	})
 }
 
@@ -319,7 +333,6 @@ func TestScheduler_Trigger_RejectsSecondDispatch(t *testing.T) {
 func TestScheduler_ExecuteTask_DiscardsResultOfReclaimedRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		const (
 			taskID         = "reclaimed"
 			reclaimedRunID = "run-owned-by-another-instance"
@@ -333,10 +346,12 @@ func TestScheduler_ExecuteTask_DiscardsResultOfReclaimedRun(t *testing.T) {
 		t.Cleanup(func() {
 			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		})
 
 		var ran atomic.Int32
+
 		require.NoError(t, s.Register(ctx, schedtask.Config{
 			ID:         taskID,
 			Schedule:   "@every 1h",
@@ -351,9 +366,11 @@ func TestScheduler_ExecuteTask_DiscardsResultOfReclaimedRun(t *testing.T) {
 				if err != nil || st == nil {
 					return err
 				}
+
 				st.Status = horai.TaskStatusRunning
 				st.LastRunID = reclaimedRunID
 				st.RunStartedAt = time.Now().Unix()
+
 				return seedState(storage, ctx, st)
 			},
 		}))
@@ -366,6 +383,5 @@ func TestScheduler_ExecuteTask_DiscardsResultOfReclaimedRun(t *testing.T) {
 			return err == nil && st != nil && st.LastRunID != reclaimedRunID
 		}, time.Second, 20*time.Millisecond,
 			"a reclaimed run must discard its result instead of overwriting the live run")
-
 	})
 }

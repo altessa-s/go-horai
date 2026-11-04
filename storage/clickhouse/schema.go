@@ -77,9 +77,11 @@ func SchemaDDL(table, engine, cluster string, ttl time.Duration) (string, error)
 	fmt.Fprintf(&sb, ")\nENGINE = %s", engine)
 	sb.WriteString("\nPARTITION BY toYYYYMM(toDateTime(`ended_at`))")
 	sb.WriteString("\nORDER BY (`task_id`, `started_at`, `id`)")
+
 	if ttl > 0 {
 		fmt.Fprintf(&sb, "\nTTL toDateTime(`ended_at`) + INTERVAL %d SECOND", max(int64(ttl/time.Second), 1))
 	}
+
 	return sb.String(), nil
 }
 
@@ -89,6 +91,7 @@ func onCluster(cluster string) string {
 	if cluster == "" {
 		return ""
 	}
+
 	return " ON CLUSTER `" + cluster + "`"
 }
 
@@ -99,11 +102,14 @@ func validateSchemaNames(table, engine, cluster string) error {
 	if !tableNamePattern.MatchString(table) {
 		return fmt.Errorf("%w: table %q", ErrInvalidIdentifier, table)
 	}
+
 	if cluster != "" && !clusterNamePattern.MatchString(cluster) {
 		return fmt.Errorf("%w: cluster %q", ErrInvalidIdentifier, cluster)
 	}
+
 	if !enginePattern.MatchString(engine) {
 		return fmt.Errorf("%w: %q", ErrInvalidEngine, engine)
 	}
+
 	return nil
 }

@@ -20,6 +20,7 @@ func newFilterPlan(e query.Expr, fields []query.Field) (*filterPlan, error) {
 	if err := query.Validate(e, fields); err != nil {
 		return nil, err
 	}
+
 	return &filterPlan{node: e, query: pushdown(e)}, nil
 }
 func (p *filterPlan) match(r query.Record) bool { return query.Match(p.node, r) }
@@ -28,22 +29,27 @@ func (p *filterPlan) match(r query.Record) bool { return query.Match(p.node, r) 
 func pushdown(e query.Expr) string {
 	if a, ok := e.(query.And); ok {
 		var parts []string
+
 		for _, c := range a {
 			if s := pushdown(c); s != "" {
 				parts = append(parts, s)
 			}
 		}
+
 		return strings.Join(parts, " ")
 	}
+
 	c, ok := e.(query.Cmp)
 	if !ok {
 		return ""
 	}
+
 	switch c.Field {
 	case "status", "priority", "failures", startedAtField, "endedAt", "durationMs":
 	default:
 		return ""
 	}
+
 	n, ok := c.Value.(int64)
 	if !ok {
 		return ""
@@ -54,6 +60,7 @@ func pushdown(e query.Expr) string {
 	if n >= maxExactInteger || n <= -maxExactInteger {
 		return ""
 	}
+
 	switch c.Op {
 	case query.Eq:
 		return fmt.Sprintf("@%s:[%d %d]", c.Field, n, n)
@@ -71,12 +78,15 @@ func pushdown(e query.Expr) string {
 }
 func escapeTag(s string) string {
 	var b strings.Builder
+
 	for _, r := range s {
 		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
 			b.WriteByte('\\')
 		}
+
 		b.WriteRune(r)
 	}
+
 	return b.String()
 }
 

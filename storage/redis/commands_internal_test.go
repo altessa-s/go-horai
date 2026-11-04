@@ -32,6 +32,7 @@ func (h *commandHook) ProcessHook(rdb.ProcessHook) rdb.ProcessHook {
 			c.SetErr(h.err)
 			return h.err
 		}
+
 		switch c := c.(type) {
 		case *rdb.Cmd:
 			c.SetVal(int64(1))
@@ -42,6 +43,7 @@ func (h *commandHook) ProcessHook(rdb.ProcessHook) rdb.ProcessHook {
 		case *rdb.IntCmd:
 			c.SetVal(1)
 		}
+
 		return nil
 	}
 }
@@ -52,13 +54,17 @@ func (h *commandHook) ProcessPipelineHook(rdb.ProcessPipelineHook) rdb.ProcessPi
 				return err
 			}
 		}
+
 		return nil
 	}
 }
 func TestCommandsAndErrors(t *testing.T) {
 	t.Parallel()
+
 	client := rdb.NewClient(&rdb.Options{})
+
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
 	hook := &commandHook{}
 	client.AddHook(hook)
 	s, err := New(client, WithKeyPrefix("prefix:"))
@@ -71,6 +77,7 @@ func TestCommandsAndErrors(t *testing.T) {
 	state, err := s.GetTask(t.Context(), "task")
 	require.NoError(t, err)
 	require.Equal(t, int64(3), state.Revision)
+
 	for _, call := range []func() (bool, error){
 		func() (bool, error) { return s.CreateTask(t.Context(), &horai.TaskState{ID: "task"}) },
 		func() (bool, error) {
@@ -87,9 +94,11 @@ func TestCommandsAndErrors(t *testing.T) {
 		ok, err := call()
 		require.NoError(t, err)
 		require.True(t, ok)
+
 		last := hook.commands[len(hook.commands)-1]
 		require.Equal(t, "prefix:task:task", last[3])
 	}
+
 	failure := errors.New("redis unavailable")
 	hook.err = failure
 	_, err = s.GetTask(t.Context(), "task")
@@ -105,15 +114,19 @@ func TestCommandsAndErrors(t *testing.T) {
 	_, err = s.RenewRun(t.Context(), "task", "node/run", 20)
 	require.ErrorIs(t, err, failure)
 	require.ErrorIs(t, s.AddHistory(t.Context(), &horai.TaskHistory{ID: "h", TaskID: "task"}), failure)
+
 	for _, err := range s.Tasks(t.Context()) {
 		require.ErrorIs(t, err, failure)
 	}
+
 	for _, err := range s.DueTasks(t.Context(), 10) {
 		require.ErrorIs(t, err, failure)
 	}
+
 	for _, err := range s.UnfinishedRuns(t.Context()) {
 		require.ErrorIs(t, err, failure)
 	}
+
 	hook.err = rdb.Nil
 	state, err = s.GetTask(t.Context(), "missing")
 	require.NoError(t, err)
@@ -121,6 +134,7 @@ func TestCommandsAndErrors(t *testing.T) {
 }
 func TestJSONMappingErrors(t *testing.T) {
 	t.Parallel()
+
 	for _, raw := range []string{"[]", "null", "invalid"} {
 		_, err := unmarshalJSONResult[taskData](raw)
 		require.Error(t, err)

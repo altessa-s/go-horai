@@ -36,32 +36,41 @@ func column(f query.Field) (string, error) {
 	case "id", "description", "schedule", "status", "priority", "failures", "unmanaged", "success", "error":
 		return string(f), nil
 	}
+
 	return "", fmt.Errorf("%w: field %q", query.ErrInvalid, f)
 }
 func translate(e query.Expr, fields []query.Field, d Dialect) (string, []any, error) {
 	if err := query.Validate(e, fields); err != nil {
 		return "", nil, err
 	}
+
 	var args []any
+
 	bind := func(v any) string {
 		args = append(args, v)
 		if d == Postgres {
 			return fmt.Sprintf("$%d", len(args))
 		}
+
 		return "?"
 	}
+
 	var walk func(query.Expr) string
+
 	walk = func(e query.Expr) string {
 		join := func(es []query.Expr, op, empty string) string {
 			if len(es) == 0 {
 				return empty
 			}
+
 			ss := make([]string, len(es))
 			for i, v := range es {
 				ss[i] = walk(v)
 			}
+
 			return "(" + strings.Join(ss, op) + ")"
 		}
+
 		switch v := e.(type) {
 		case nil:
 			return "TRUE"
@@ -74,9 +83,11 @@ func translate(e query.Expr, fields []query.Field, d Dialect) (string, []any, er
 		case query.Cmp:
 			return comparison(v, bind)
 		}
+
 		panic("validated expression")
 	}
 	sql := walk(e)
+
 	return sql, args, nil
 }
 
@@ -84,6 +95,7 @@ func comparison(v query.Cmp, bind func(any) string) string {
 	col, _ := column(v.Field) // Validate rejects fields outside the closed mapping.
 	if v.Op == query.In {
 		var values []string
+
 		switch vs := v.Value.(type) {
 		case []string:
 			for _, x := range vs {
@@ -98,8 +110,10 @@ func comparison(v query.Cmp, bind func(any) string) string {
 				values = append(values, bind(x))
 			}
 		}
+
 		return "(" + col + " IN (" + strings.Join(values, ",") + "))"
 	}
+
 	if v.Op == query.Prefix || v.Op == query.Contains {
 		value, _ := v.Value.(string) // Validated above.
 		// An explicit escape character avoids SQL-mode-dependent backslash handling.
@@ -107,8 +121,11 @@ func comparison(v query.Cmp, bind func(any) string) string {
 		if v.Op == query.Contains {
 			value = "%" + value
 		}
+
 		return "(" + col + " LIKE " + bind(value) + " ESCAPE '!')"
 	}
+
 	op := map[query.Op]string{query.Eq: "=", query.Ne: "<>", query.Lt: "<", query.Le: "<=", query.Gt: ">", query.Ge: ">="}[v.Op]
+
 	return "(" + col + " " + op + " " + bind(v.Value) + ")"
 }

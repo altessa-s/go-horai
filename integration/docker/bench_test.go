@@ -18,6 +18,7 @@ func BenchmarkStores(b *testing.B) {
 	for _, kind := range []string{"redis", "mongo", "postgres", "mysql"} {
 		b.Run(kind, func(b *testing.B) {
 			var addr string
+
 			switch kind {
 			case "redis":
 				addr = os.Getenv("HORAI_REDIS_ADDR")
@@ -40,6 +41,7 @@ func BenchmarkStores(b *testing.B) {
 					addr = "root:horai-test@tcp(" + endpoint(b, "mysql:8.4", "3306/tcp", map[string]string{"MYSQL_ROOT_PASSWORD": "horai-test", "MYSQL_DATABASE": "horai"}) + ")/horai"
 				}
 			}
+
 			storagetest.Bench(b, func(t testing.TB) horai.Store { t.Helper(); return openStore(t, kind, addr, namespace()) })
 		})
 	}

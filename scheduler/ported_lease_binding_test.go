@@ -22,6 +22,7 @@ func legacyClaim(t *testing.T, mem *memory.Store, runID string, startedAt int64)
 	t.Helper()
 	st, err := mem.GetTask(t.Context(), "task")
 	require.NoError(t, err)
+
 	st.Status = horai.TaskStatusRunning
 	st.RunStartedAt = startedAt
 	st.LastRunID = runID
@@ -35,7 +36,6 @@ func legacyClaim(t *testing.T, mem *memory.Store, runID string, startedAt int64)
 func TestLegacyClaimAfterLeasedRunIsNotRecovered(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -53,7 +53,6 @@ func TestLegacyClaimAfterLeasedRunIsNotRecovered(t *testing.T) {
 		startForRecovery(t, mem)
 
 		requireStillRunning(t, mem, "legacy/run")
-
 	})
 }
 
@@ -63,7 +62,6 @@ func TestLegacyClaimAfterLeasedRunIsNotRecovered(t *testing.T) {
 func TestInheritedLeaseIsNotTrusted(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		for _, tc := range []struct{ name, leaseID string }{
 			// Left by a lease-aware build that did not clear leases on finish.
 			{"bound_to_earlier_run", "earlier/run"},
@@ -71,7 +69,6 @@ func TestInheritedLeaseIsNotTrusted(t *testing.T) {
 			{"unbound", ""},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				now := time.Now().Unix()
 				require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -88,7 +85,6 @@ func TestInheritedLeaseIsNotTrusted(t *testing.T) {
 				requireStillRunning(t, mem, "legacy/run")
 			})
 		}
-
 	})
 }
 
@@ -96,7 +92,6 @@ func TestInheritedLeaseIsNotTrusted(t *testing.T) {
 func TestUnboundLeaseDoesNotProtectRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		for _, tc := range []struct {
 			name       string
 			leaseUntil int64
@@ -106,7 +101,6 @@ func TestUnboundLeaseDoesNotProtectRun(t *testing.T) {
 			{"lease_valid", 3600, true},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				now := time.Now().Unix()
 				require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -123,10 +117,10 @@ func TestUnboundLeaseDoesNotProtectRun(t *testing.T) {
 					requireRecovered(t, mem, horai.TaskStatusActive)
 					return
 				}
+
 				requireStillRunning(t, mem, "node-b/run")
 			})
 		}
-
 	})
 }
 
@@ -135,7 +129,6 @@ func TestUnboundLeaseDoesNotProtectRun(t *testing.T) {
 func TestRenewalBindsLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -153,6 +146,5 @@ func TestRenewalBindsLease(t *testing.T) {
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(time.Second))
 
 		requireStillRunning(t, mem, "node-b/run")
-
 	})
 }

@@ -47,11 +47,13 @@ var contracts = []struct {
 // so a new contract cannot be left out of a single backend.
 func Run(t *testing.T, newStore func(testing.TB) horai.Store) {
 	t.Helper()
+
 	for _, c := range contracts {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			c.check(t, newStore(t))
 		})
 	}
+
 	RunHistory(t, func(tb testing.TB) horai.HistoryStore { tb.Helper(); return newStore(tb) })
 }

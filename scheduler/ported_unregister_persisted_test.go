@@ -22,7 +22,6 @@ import (
 func TestUnregister_PersistedNotRegistered(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		ctx := t.Context()
 		storage := mustNewMemory(t, 100)
 
@@ -38,12 +37,12 @@ func TestUnregister_PersistedNotRegistered(t *testing.T) {
 		state, err := storage.GetTask(ctx, "stale")
 		require.NoError(t, err)
 		require.Nil(t, state, "the persisted task is deleted")
+
 		for h, err := range storage.History(ctx, "stale") {
 			require.NoError(t, err)
 			require.Failf(t, "history kept", "entry %s survived Unregister", h.ID)
 		}
 
 		require.ErrorIs(t, current.Unregister(ctx, "stale"), horai.ErrTaskNotRegistered)
-
 	})
 }

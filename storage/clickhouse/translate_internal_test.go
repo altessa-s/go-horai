@@ -21,8 +21,10 @@ func TestTranslateBoundValues(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, sql)
 		require.NotContains(t, sql, "quote'--")
+
 		_ = args
 	}
+
 	_, _, err := translate(query.Cmp{Field: "id; DROP TABLE tasks", Op: query.Eq, Value: "x"}, query.HistoryFields())
 	require.Error(t, err)
 }
@@ -30,6 +32,7 @@ func FuzzTranslation(f *testing.F) {
 	for _, seed := range [][]byte{{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, {4, 0, 8}, {4, 1, 7}, {3, 6, 2}, {2, 5, 3}} {
 		f.Add(seed)
 	}
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		fields := append(query.TaskFields(), query.HistoryFields()...)
 		e := testhelpers.QueryTree(data, fields)
@@ -37,18 +40,22 @@ func FuzzTranslation(f *testing.F) {
 			sql, args, err := translate(e, fields)
 			require.NoError(t, err)
 			require.NotContains(t, sql, "value:")
+
 			placeholders := regexp.MustCompile(`\$[0-9]+|\?`)
 			require.Len(t, placeholders.FindAllString(sql, -1), len(args))
+
 			stripped := placeholders.ReplaceAllString(sql, "")
 			for _, word := range regexp.MustCompile(`[A-Za-z_]+`).FindAllString(stripped, -1) {
 				require.Contains(t, []string{"TRUE", "FALSE", "AND", "OR", "NOT", "IN", "LIKE", "ESCAPE", "startsWith", "position", "id", "description", "status", "priority", "schedule", "last_run_at", "next_run_at", "skip_next_run", "disable_history", "unmanaged", "one_shot", "failures", "task_id", "run_id", "started_at", "ended_at", "duration_ms", "success", "error"}, word)
 			}
+
 			require.Equal(t, strings.Count(sql, "("), strings.Count(sql, ")"))
 		}
 	})
 }
 func TestColumnRejectsUnknown(t *testing.T) {
 	t.Parallel()
+
 	_, err := column("unknown")
 	require.ErrorIs(t, err, query.ErrInvalid)
 }

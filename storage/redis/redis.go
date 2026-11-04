@@ -109,15 +109,19 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	if err := s.ensureTaskIndex(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "ensure task index")
 	}
+
 	if err := s.ensureHistoryIndex(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "ensure history index")
 	}
+
 	if err := s.waitForIndex(ctx, s.historyIndexName()); err != nil {
 		return coreerrs.WrapOperation(err, "wait for history index")
 	}
+
 	if err := s.backfillNextRunAt(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "backfill task next_run_at")
 	}
+
 	return nil
 }
 
@@ -126,6 +130,7 @@ func (s *Store) key(parts ...string) string {
 	if s.keyPrefix == "" {
 		return strings.Join(parts, ":")
 	}
+
 	return s.keyPrefix + ":" + strings.Join(parts, ":")
 }
 
@@ -157,32 +162,39 @@ func (s *Store) searchAll(
 	fn func(key, body string) (bool, error),
 ) error {
 	history := len(sortBy) > 0 && sortBy[0].FieldName == startedAtField
+
 	var cursor *searchCursor
 	for {
 		rows, err := s.searchKeyset(ctx, index, query, history, cursor)
 		if err != nil {
 			return err
 		}
+
 		for _, row := range rows {
 			cursor = &row
+
 			var body string
 			if !noContent {
 				body, err = s.client.JSONGet(ctx, row.key, "$").Result()
 				if errors.Is(err, redis.Nil) {
 					continue
 				}
+
 				if err != nil {
 					return err
 				}
 			}
+
 			cont, err := fn(row.key, body)
 			if err != nil {
 				return err
 			}
+
 			if !cont {
 				return nil
 			}
 		}
+
 		if len(rows) < searchPageSize {
 			return nil
 		}
@@ -198,6 +210,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (*horai.TaskState, error
 		if errors.Is(err, redis.Nil) {
 			return nil, nil //nolint:nilnil // nil state with nil error indicates "not found"
 		}
+
 		return nil, coreerrs.Wrapf(err, "failed to get task %q", id)
 	}
 
@@ -222,14 +235,17 @@ end
 func (s *Store) CreateTask(ctx context.Context, state *horai.TaskState) (bool, error) {
 	td := newTaskData(state)
 	td.Revision = 1
+
 	doc, err := json.Marshal(td)
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
+
 	n, err := createTask.Run(ctx, s.client, []string{s.taskKey(state.ID)}, string(doc)).Int64()
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to create task %q", state.ID)
 	}
+
 	return n == 1, nil
 }
 
@@ -262,10 +278,12 @@ return 1
 func (s *Store) ReplaceTaskIf(ctx context.Context, state *horai.TaskState, expect horai.TaskFence) (bool, error) {
 	td := newTaskData(state)
 	td.Revision = expect.Revision + 1
+
 	doc, err := json.Marshal(td)
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
+
 	res, err := replaceTaskIf.Run(ctx, s.client, []string{s.taskKey(state.ID)},
 		int(expect.Status),
 		expect.NextRunAt,
@@ -278,9 +296,12 @@ func (s *Store) ReplaceTaskIf(ctx context.Context, state *horai.TaskState, expec
 		if errors.Is(err, redis.Nil) {
 			return false, nil
 		}
+
 		return false, coreerrs.Wrapf(err, "failed to replace task %q", state.ID)
 	}
+
 	n, _ := res.(int64)
+
 	return n == 1, nil
 }
 
@@ -330,6 +351,7 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "encode run id")
 	}
+
 	res, err := claimRun.Run(ctx, s.client, []string{s.taskKey(id)},
 		int(horai.TaskStatusActive),
 		claim.NextRunAt,
@@ -343,9 +365,12 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 		if errors.Is(err, redis.Nil) {
 			return false, nil
 		}
+
 		return false, coreerrs.WrapOperation(err, "claim task run")
 	}
+
 	n, _ := res.(int64)
+
 	return n == 1, nil
 }
 
@@ -356,6 +381,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	if err := s.DeleteHistory(ctx, id); err != nil {
 		return err
 	}
+
 	return s.client.Del(ctx, s.taskKey(id)).Err()
 }
 
@@ -366,12 +392,14 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+
 		err := s.searchAll(ctx, s.taskIndexName(), "*", sortBy, false,
 			func(key, body string) (bool, error) {
 				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}
+
 				return yield(td.toTaskState(), nil), nil
 			})
 		if err != nil {
@@ -393,12 +421,14 @@ func (s *Store) DueTasks(ctx context.Context, now int64) iter.Seq2[*horai.TaskSt
 		query := fmt.Sprintf("@status:[%d %d] @nextRunAt:[-inf %d]", active, active, now)
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+
 		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
 			func(key, body string) (bool, error) {
 				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}
+
 				return yield(td.toTaskState(), nil), nil
 			})
 		if err != nil {
@@ -414,9 +444,11 @@ func unmarshalJSONResult[T any](raw string) (*T, error) {
 	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
 		return nil, err
 	}
+
 	if len(arr) == 0 {
 		return nil, errors.New("empty JSON result")
 	}
+
 	return &arr[0], nil
 }
 
@@ -429,37 +461,48 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	query := "*"
+
 	var plan *filterPlan
+
 	if f != nil {
 		var err error
+
 		plan, err = newFilterPlan(f, q.TaskFields())
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "prepare task filter")
 		}
+
 		if plan.query != "" {
 			query = plan.query
 		}
 	}
 
 	var results []*horai.TaskState
+
 	sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+
 	err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
 		func(key, body string) (bool, error) {
 			td, parseErr := unmarshalJSONResult[taskData](body)
 			if parseErr != nil {
 				return false, coreerrs.WrapOperation(parseErr, "parse task document")
 			}
+
 			state := td.toTaskState()
 			if pg.AfterID != "" && state.ID <= pg.AfterID {
 				return true, nil
 			}
+
 			if plan != nil {
 				if !plan.match(state.QueryRecord()) {
 					return true, nil
 				}
 			}
+
 			results = append(results, state)
+
 			return int64(len(results)) <= pg.Limit, nil
 		})
 	if err != nil {
@@ -531,12 +574,14 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 	if result.Success {
 		success = 1
 	}
+
 	n, err := finishRun.Run(ctx, s.client, []string{s.taskKey(id)},
 		runID, result.StartedAt, result.EndedAt, result.NextRunAt, result.Schedule, success,
 		int(horai.TaskStatusRunning), int(horai.TaskStatusActive), int(horai.TaskStatusCompleted), result.RunAt).Int64()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "finish task run")
 	}
+
 	return n == 1, nil
 }
 
@@ -557,10 +602,12 @@ func (s *Store) RenewRun(ctx context.Context, id, runID string, leaseUntil int64
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "encode run id")
 	}
+
 	n, err := renewRun.Run(ctx, s.client, []string{s.taskKey(id)}, runID, leaseUntil, string(leaseID)).Int64()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "renew task run")
 	}
+
 	return n == 1, nil
 }
 
@@ -570,12 +617,14 @@ func (s *Store) UnfinishedRuns(ctx context.Context) iter.Seq2[*horai.TaskState, 
 		query := "(@runStartedAt:[-inf (0] | @runStartedAt:[(0 +inf])"
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+
 		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
 			func(key, body string) (bool, error) {
 				td, parseErr := unmarshalJSONResult[taskData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse task document")
 				}
+
 				return yield(td.toTaskState(), nil), nil
 			})
 		if err != nil {

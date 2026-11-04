@@ -69,14 +69,18 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 	}
 
 	kept := 0
+
 	var stale []string
+
 	newestFirst := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
+
 	err = s.searchAll(ctx, s.historyIndexName(), query, newestFirst, false,
 		func(key, body string) (bool, error) {
 			hd, parseErr := unmarshalJSONResult[historyData](body)
 			if parseErr != nil {
 				return false, parseErr
 			}
+
 			switch {
 			case hd.TaskID != taskID:
 			case kept < s.opts.maxHistoryPerTask:
@@ -84,6 +88,7 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 			default:
 				stale = append(stale, key)
 			}
+
 			return true, nil
 		})
 	if err != nil || len(stale) == 0 {
@@ -94,6 +99,7 @@ func (s *Store) trimHistory(ctx context.Context, taskID string) {
 	for _, key := range stale {
 		pipe.Del(ctx, key)
 	}
+
 	_, _ = pipe.Exec(ctx) //nolint:errcheck // best-effort trim
 }
 
@@ -109,15 +115,18 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 		query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
 		sortBy := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
+
 		err := s.searchAll(ctx, s.historyIndexName(), query, sortBy, false,
 			func(key, body string) (bool, error) {
 				hd, parseErr := unmarshalJSONResult[historyData](body)
 				if parseErr != nil {
 					return false, coreerrs.WrapOperation(parseErr, "parse history document")
 				}
+
 				if hd.TaskID != id {
 					return true, nil
 				}
+
 				return yield(hd.toTaskHistory(), nil), nil
 			})
 		if err != nil && !errors.Is(err, redis.Nil) {
@@ -135,6 +144,7 @@ func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 
 	// Collect first so a traversal error does not leave a partially cleaned history.
 	var keys []string
+
 	if err := s.searchAll(ctx, s.historyIndexName(), query, nil, true,
 		func(key, body string) (bool, error) {
 			keys = append(keys, key)
@@ -172,34 +182,42 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	query := fmt.Sprintf("@taskId:{%s}", escapeTag(taskID))
 	if pg.AfterID != "" {
 		query += fmt.Sprintf(" @startedAt:[-inf %d]", pg.AfterStartedAt)
 	}
 
 	var plan *filterPlan
+
 	if f != nil {
 		var err error
+
 		plan, err = newFilterPlan(f, q.HistoryFields())
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "prepare history filter")
 		}
+
 		if plan.query != "" {
 			query += " " + plan.query
 		}
 	}
 
 	var results []*horai.TaskHistory
+
 	sortBy := []redis.FTSearchSortBy{{FieldName: startedAtField, Desc: true}}
+
 	err := s.searchAll(ctx, s.historyIndexName(), "("+query+")", sortBy, false,
 		func(key, body string) (bool, error) {
 			hd, parseErr := unmarshalJSONResult[historyData](body)
 			if parseErr != nil {
 				return false, coreerrs.WrapOperation(parseErr, "parse history document")
 			}
+
 			if hd.TaskID != taskID {
 				return true, nil
 			}
+
 			entry := hd.toTaskHistory()
 			if pg.AfterID != "" &&
 				entry.StartedAt >= pg.AfterStartedAt && (entry.StartedAt != pg.AfterStartedAt || entry.ID >= pg.AfterID) {
@@ -209,12 +227,15 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 			if int64(len(results)) > pg.Limit && entry.StartedAt < results[pg.Limit].StartedAt {
 				return false, nil
 			}
+
 			if plan != nil {
 				if !plan.match(entry.QueryRecord()) {
 					return true, nil
 				}
 			}
+
 			results = append(results, entry)
+
 			return true, nil
 		})
 	if err != nil {
@@ -225,34 +246,42 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 		if c := cmp.Compare(b.StartedAt, a.StartedAt); c != 0 {
 			return c
 		}
+
 		return cmp.Compare(b.ID, a.ID)
 	})
+
 	if int64(len(results)) > pg.Limit+1 {
 		results = results[:pg.Limit+1]
 	}
+
 	return results, nil
 }
 
 // DeleteHistory removes all history entries belonging exactly to id.
 func (s *Store) DeleteHistory(ctx context.Context, id string) error {
 	var keys []string
+
 	err := s.searchAll(ctx, s.historyIndexName(), "*", nil, false, func(key, body string) (bool, error) {
 		h, err := unmarshalJSONResult[historyData](body)
 		if err != nil {
 			return false, err
 		}
+
 		if h.TaskID == id {
 			keys = append(keys, key)
 		}
+
 		return true, nil
 	})
 	if err != nil {
 		return err
 	}
+
 	for _, key := range keys {
 		if err := s.client.Del(ctx, key).Err(); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

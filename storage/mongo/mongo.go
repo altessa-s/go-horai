@@ -95,6 +95,7 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}
 
 	_, err := s.history.Indexes().CreateMany(ctx, historyIndexModels())
+
 	return err
 }
 
@@ -141,11 +142,13 @@ func historyIndexModels() []mongo.IndexModel {
 // distinguish "not found" from a storage error.
 func (s *Store) GetTask(ctx context.Context, id string) (*horai.TaskState, error) {
 	var doc taskDocument
+
 	err := s.tasks.FindOne(ctx, bson.M{fieldId: id}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil //nolint:nilnil // nil state with nil error indicates "not found"
 		}
+
 		return nil, err
 	}
 
@@ -157,13 +160,16 @@ func (s *Store) GetTask(ctx context.Context, id string) (*horai.TaskState, error
 // task already exists and is reported as (false, nil).
 func (s *Store) CreateTask(ctx context.Context, state *horai.TaskState) (bool, error) {
 	doc := newTaskDocument(state)
+
 	doc.Revision = 1
 	if _, err := s.tasks.InsertOne(ctx, doc); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
@@ -184,10 +190,12 @@ func (s *Store) ReplaceTaskIf(ctx context.Context, state *horai.TaskState, expec
 	}
 	doc := newTaskDocument(state)
 	doc.Revision = expect.Revision + 1
+
 	res, err := s.tasks.ReplaceOne(ctx, filter, doc)
 	if err != nil {
 		return false, err
 	}
+
 	return res.MatchedCount == 1, nil
 }
 
@@ -198,6 +206,7 @@ func zeroOrMissing[T comparable](v T) any {
 	if v == zero {
 		return bson.M{"$in": bson.A{zero, nil}}
 	}
+
 	return v
 }
 
@@ -210,6 +219,7 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 	if err := claim.Validate(); err != nil {
 		return false, err
 	}
+
 	filter := bson.M{
 		fieldId:           id,
 		fieldStatus:       int32(horai.TaskStatusActive),
@@ -228,10 +238,12 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 		},
 		"$inc": bson.M{fieldRevision: 1},
 	}
+
 	res, err := s.tasks.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return false, err
 	}
+
 	return res.ModifiedCount == 1, nil
 }
 
@@ -245,6 +257,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	}
 
 	_, err := s.tasks.DeleteOne(ctx, bson.M{fieldId: id})
+
 	return err
 }
 
@@ -256,11 +269,13 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
 		findOpts := mongoOptions.Find().SetSort(bson.D{{Key: fieldId, Value: 1}})
+
 		cursor, err := s.tasks.Find(ctx, bson.M{}, findOpts)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
+
 		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
@@ -269,6 +284,7 @@ func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 				yield(nil, err)
 				return
 			}
+
 			if !yield(doc.toTaskState(), nil) {
 				return
 			}
@@ -291,18 +307,22 @@ func (s *Store) Tasks(ctx context.Context) iter.Seq2[*horai.TaskState, error] {
 func (s *Store) DueTasks(ctx context.Context, now int64) iter.Seq2[*horai.TaskState, error] {
 	return func(yield func(*horai.TaskState, error) bool) {
 		due := bson.M{fieldNextRunAt: bson.M{"$lte": now}}
+
 		query := bson.M{fieldStatus: int32(horai.TaskStatusActive)}
 		if now >= 0 {
 			query["$or"] = bson.A{due, bson.M{fieldNextRunAt: nil}}
 		} else {
 			query[fieldNextRunAt] = due[fieldNextRunAt]
 		}
+
 		findOpts := mongoOptions.Find().SetSort(bson.D{{Key: fieldId, Value: 1}})
+
 		cursor, err := s.tasks.Find(ctx, query, findOpts)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
+
 		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
@@ -311,6 +331,7 @@ func (s *Store) DueTasks(ctx context.Context, now int64) iter.Seq2[*horai.TaskSt
 				yield(nil, err)
 				return
 			}
+
 			if !yield(doc.toTaskState(), nil) {
 				return
 			}
@@ -327,6 +348,7 @@ func (s *Store) DueTasks(ctx context.Context, now int64) iter.Seq2[*horai.TaskSt
 func (s *Store) AddHistory(ctx context.Context, history *horai.TaskHistory) error {
 	doc := newHistoryDocument(history)
 	_, err := s.history.InsertOne(ctx, doc)
+
 	return err
 }
 
@@ -341,11 +363,13 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 			{Key: fieldStartedAt, Value: -1},
 			{Key: fieldId, Value: -1},
 		})
+
 		cursor, err := s.history.Find(ctx, bson.M{fieldTaskId: id}, findOpts)
 		if err != nil {
 			yield(nil, err)
 			return
 		}
+
 		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
@@ -354,6 +378,7 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 				yield(nil, err)
 				return
 			}
+
 			if !yield(doc.toTaskHistory(), nil) {
 				return
 			}
@@ -382,6 +407,7 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	query := bson.M{}
 	if pg.AfterID != "" {
 		query[fieldId] = bson.M{"$gt": pg.AfterID}
@@ -407,13 +433,16 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f q.Expr) ([]*
 	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []*horai.TaskState
+
 	for cursor.Next(ctx) {
 		var doc taskDocument
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, err
 		}
+
 		results = append(results, doc.toTaskState())
 	}
+
 	return results, cursor.Err()
 }
 
@@ -425,6 +454,7 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	query := bson.M{fieldTaskId: taskID}
 	if pg.AfterID != "" {
 		// Compound cursor seek: entries with start_time < cursor, OR same
@@ -455,13 +485,16 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 	defer func() { _ = cursor.Close(ctx) }()
 
 	var results []*horai.TaskHistory
+
 	for cursor.Next(ctx) {
 		var doc historyDocument
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, err
 		}
+
 		results = append(results, doc.toTaskHistory())
 	}
+
 	return results, cursor.Err()
 }
 
@@ -482,6 +515,7 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 	if runID == "" {
 		return false, nil
 	}
+
 	oneShot := bson.M{opIfNull: bson.A{"$one_shot", false}}
 	// executed: a one-shot task still registered for the occurrence this run
 	// executed (re-registration may have moved it to another RunAt meanwhile).
@@ -494,10 +528,12 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 		bson.M{opEq: bson.A{"$schedule", bson.M{opLiteral: result.Schedule}}},
 		result.NextRunAt == 0,
 	}}}}
+
 	var failures any = 0
 	if !result.Success {
 		failures = bson.M{"$add": bson.A{bson.M{opIfNull: bson.A{"$failures", 0}}, 1}}
 	}
+
 	update := mongo.Pipeline{bson.D{{Key: opSet, Value: bson.M{
 		// A finished one-shot occurrence is terminal whatever the status; otherwise
 		// a running task returns to active unless management changed its status.
@@ -515,10 +551,12 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 		fieldRunStartedAt: 0, fieldRunLeaseUntil: 0, fieldRunLeaseId: "", "failures": failures,
 		fieldRevision: nextRevision,
 	}}}}
+
 	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID), update)
 	if err != nil {
 		return false, err
 	}
+
 	return res.MatchedCount == 1, nil
 }
 
@@ -528,12 +566,14 @@ func (s *Store) RenewRun(ctx context.Context, id, runID string, leaseUntil int64
 	if runID == "" {
 		return false, nil
 	}
+
 	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID),
 		bson.M{opSet: bson.M{fieldRunLeaseUntil: leaseUntil, fieldRunLeaseId: runID}, "$inc": bson.M{fieldRevision: 1}},
 	)
 	if err != nil {
 		return false, err
 	}
+
 	return res.MatchedCount == 1, nil
 }
 
@@ -546,16 +586,19 @@ func (s *Store) UnfinishedRuns(ctx context.Context) iter.Seq2[*horai.TaskState, 
 			return
 		}
 		defer func() { _ = cur.Close(ctx) }()
+
 		for cur.Next(ctx) {
 			var d taskDocument
 			if err := cur.Decode(&d); err != nil {
 				yield(nil, err)
 				return
 			}
+
 			if !yield(d.toTaskState(), nil) {
 				return
 			}
 		}
+
 		if err := cur.Err(); err != nil {
 			yield(nil, err)
 		}

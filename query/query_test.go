@@ -15,6 +15,7 @@ import (
 
 func TestComparisons(t *testing.T) {
 	t.Parallel()
+
 	cases := []struct {
 		expr query.Expr
 		want bool
@@ -38,20 +39,24 @@ func TestComparisons(t *testing.T) {
 }
 func TestValidation(t *testing.T) {
 	t.Parallel()
+
 	for _, e := range []query.Expr{
 		query.Cmp{Field: "unknown", Op: query.Eq, Value: ""}, query.Cmp{Field: "status", Op: query.Eq, Value: "1"}, query.Cmp{Field: "status", Op: "bad", Value: int64(1)}, query.Cmp{Field: "status", Op: query.In, Value: []int64{}}, query.Cmp{Field: "oneShot", Op: query.Lt, Value: true}, query.Cmp{Field: "status", Op: query.Contains, Value: int64(1)}, query.Or{nil, query.Cmp{Field: "secret", Op: query.Eq, Value: "x"}},
 	} {
 		require.ErrorIs(t, query.Validate(e, query.TaskFields()), query.ErrInvalid)
 		require.False(t, query.Match(e, nil))
 	}
+
 	var deep query.Expr
 	for range 34 {
 		deep = query.Not{Expr: deep}
 	}
+
 	require.ErrorIs(t, query.Validate(deep, query.TaskFields()), query.ErrInvalid)
 	require.ErrorIs(t, query.Validate(query.And(make([]query.Expr, 1025)), query.TaskFields()), query.ErrInvalid)
 	fields := query.TaskFields()
 	fields[0] = "mutated"
+
 	require.Equal(t, query.Field("id"), query.TaskFields()[0])
 }
 func FuzzQuery(f *testing.F) {
@@ -60,6 +65,7 @@ func FuzzQuery(f *testing.F) {
 		fields := append(query.TaskFields(), query.HistoryFields()...)
 		e := testhelpers.QueryTree(data, fields)
 		require.NoError(t, query.Validate(e, fields))
+
 		for _, r := range []query.Record{nil, {"id": "value:", "status": int64(1), "oneShot": true}, {"success": false, "startedAt": int64(-10)}} {
 			require.NotEqual(t, query.Match(e, r), query.Match(query.Not{Expr: e}, r))
 			require.Equal(t, query.Match(e, r), query.Match(query.And{e, e}, r))

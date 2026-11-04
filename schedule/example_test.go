@@ -16,5 +16,6 @@ func ExampleParse() {
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println(s.Next(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)).Format(time.RFC3339)) // Output: 2026-01-01T01:00:00Z
 }

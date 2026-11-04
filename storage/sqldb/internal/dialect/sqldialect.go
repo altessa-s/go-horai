@@ -63,6 +63,7 @@ func (s Style) Table(name string) (string, error) {
 	if !isIdent(schema) || (qualified && !isIdent(table)) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidTableName, name)
 	}
+
 	for _, p := range [...]string{schema, table} {
 		if len(p) > MaxIdentLen {
 			return "", fmt.Errorf("%w: %q exceeds %d characters", ErrInvalidTableName, p, MaxIdentLen)
@@ -74,12 +75,14 @@ func (s Style) Table(name string) (string, error) {
 	b.WriteByte(s.Quote)
 	b.WriteString(schema)
 	b.WriteByte(s.Quote)
+
 	if qualified {
 		b.WriteByte('.')
 		b.WriteByte(s.Quote)
 		b.WriteString(table)
 		b.WriteByte(s.Quote)
 	}
+
 	return b.String(), nil
 }
 
@@ -88,6 +91,7 @@ func isIdent(p string) bool {
 	if p == "" {
 		return false
 	}
+
 	for i := range len(p) {
 		switch c := p[i]; {
 		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
@@ -96,6 +100,7 @@ func isIdent(p string) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -110,6 +115,7 @@ func (s Style) IndexName(table, suffix string) string {
 	if len(name) > MaxIdentLen {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(table))
+
 		tail := fmt.Sprintf("_%08x_%s_idx", h.Sum32(), suffix)
 		if len(tail) > MaxIdentLen {
 			// Preserve existing index names for ordinary suffixes. When the
@@ -122,6 +128,7 @@ func (s Style) IndexName(table, suffix string) string {
 			name = table[:MaxIdentLen-len(tail)] + tail
 		}
 	}
+
 	return s.Ident(name)
 }
 
@@ -133,18 +140,24 @@ func (s Style) Bind(query string, start int) string {
 	if !s.Numbered {
 		return query
 	}
+
 	var b strings.Builder
 	b.Grow(len(query) + 16) //nolint:mnd // room for multi-digit placeholders
+
 	n := start
+
 	for i := range len(query) {
 		if query[i] == '?' {
 			b.WriteByte('$')
 			b.WriteString(strconv.Itoa(n))
 			n++
+
 			continue
 		}
+
 		b.WriteByte(query[i])
 	}
+
 	return b.String()
 }
 
@@ -153,6 +166,7 @@ func Unqualified(name string) string {
 	if _, table, found := strings.CutLast(name, "."); found {
 		return table
 	}
+
 	return name
 }
 
@@ -162,5 +176,6 @@ func Qualifier(name string) string {
 	if schema, _, found := strings.CutLast(name, "."); found {
 		return schema
 	}
+
 	return ""
 }

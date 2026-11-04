@@ -14,6 +14,7 @@ import (
 
 func TestPriority_String(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name     string
 		priority task.Priority
@@ -47,6 +48,7 @@ func TestPriority_Values(t *testing.T) {
 
 func TestConfig_ZeroValue(t *testing.T) {
 	t.Parallel()
+
 	var cfg task.Config
 
 	require.Equal(t, "", cfg.ID)

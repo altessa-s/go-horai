@@ -51,12 +51,16 @@ type FakeSQL struct {
 // The database is closed via tb.Cleanup.
 func NewFakeSQL(tb testing.TB, respond func(query string, args []any) FakeSQLReply) (*sql.DB, *FakeSQL) {
 	tb.Helper()
+
 	f := &FakeSQL{respond: respond}
 	if f.respond == nil {
 		f.respond = func(string, []any) FakeSQLReply { return FakeSQLReply{Affected: 1} }
 	}
+
 	db := sql.OpenDB(f)
+
 	tb.Cleanup(func() { _ = db.Close() })
+
 	return db, f
 }
 
@@ -64,6 +68,7 @@ func NewFakeSQL(tb testing.TB, respond func(query string, args []any) FakeSQLRep
 func (f *FakeSQL) Calls() []FakeSQLCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return append([]FakeSQLCall(nil), f.calls...)
 }
 
@@ -73,6 +78,7 @@ func (f *FakeSQL) Calls() []FakeSQLCall {
 func (f *FakeSQL) DisableRecording() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	f.noRecord = true
 }
 
@@ -80,6 +86,7 @@ func (f *FakeSQL) DisableRecording() {
 func (f *FakeSQL) RowsClosed() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return f.closed
 }
 
@@ -87,6 +94,7 @@ func (f *FakeSQL) RowsClosed() int {
 func (f *FakeSQL) Commits() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return f.commits
 }
 
@@ -94,6 +102,7 @@ func (f *FakeSQL) Commits() int {
 func (f *FakeSQL) Rollbacks() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return f.rollbacks
 }
 
@@ -102,12 +111,15 @@ func (f *FakeSQL) record(query string, args []driver.NamedValue, inTx bool) Fake
 	for i, a := range args {
 		values[i] = a.Value
 	}
+
 	f.mu.Lock()
 	if !f.noRecord {
 		f.calls = append(f.calls, FakeSQLCall{Query: query, Args: values, InTx: inTx})
 	}
+
 	respond := f.respond
 	f.mu.Unlock()
+
 	return respond(query, values)
 }
 
@@ -143,6 +155,7 @@ func (c *fakeSQLConn) ExecContext(_ context.Context, query string, args []driver
 	if r.Err != nil {
 		return nil, r.Err
 	}
+
 	return driver.RowsAffected(r.Affected), nil
 }
 
@@ -151,6 +164,7 @@ func (c *fakeSQLConn) QueryContext(_ context.Context, query string, args []drive
 	if r.Err != nil {
 		return nil, r.Err
 	}
+
 	return &fakeSQLRows{db: c.db, columns: r.Columns, rows: r.Rows}, nil
 }
 
@@ -186,6 +200,7 @@ func (t *fakeSQLTx) Commit() error {
 	t.conn.db.mu.Lock()
 	t.conn.db.commits++
 	t.conn.db.mu.Unlock()
+
 	return nil
 }
 
@@ -194,6 +209,7 @@ func (t *fakeSQLTx) Rollback() error {
 	t.conn.db.mu.Lock()
 	t.conn.db.rollbacks++
 	t.conn.db.mu.Unlock()
+
 	return nil
 }
 
@@ -210,6 +226,7 @@ func (r *fakeSQLRows) Close() error {
 	r.db.mu.Lock()
 	r.db.closed++
 	r.db.mu.Unlock()
+
 	return nil
 }
 
@@ -217,7 +234,9 @@ func (r *fakeSQLRows) Next(dest []driver.Value) error {
 	if r.i >= len(r.rows) {
 		return io.EOF
 	}
+
 	copy(dest, r.rows[r.i])
 	r.i++
+
 	return nil
 }

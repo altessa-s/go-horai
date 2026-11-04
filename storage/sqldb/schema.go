@@ -33,14 +33,17 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tasksName, s.historyName}, s.postgresSchema()),
 			"create scheduler schema")
 	}
+
 	for _, stmt := range s.mysqlSchema() {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return coreerrs.WrapOperation(err, "create scheduler schema")
 		}
 	}
+
 	if err := s.mysqlAddColumns(ctx); err != nil {
 		return err
 	}
+
 	return s.mysqlEnsureUnfinishedIndex(ctx)
 }
 
@@ -70,17 +73,21 @@ func (s *Store) mysqlAddColumns(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	for _, c := range addedColumns {
 		if existing[c.name] {
 			continue
 		}
+
 		if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+s.tasksTable+" ADD COLUMN "+c.name+" "+c.mysql); err != nil {
 			if now, checkErr := s.mysqlTaskColumns(ctx); checkErr == nil && now[c.name] {
 				continue
 			}
+
 			return coreerrs.WrapOperation(err, "upgrade scheduler schema")
 		}
 	}
+
 	return nil
 }
 
@@ -88,26 +95,34 @@ func (s *Store) mysqlAddColumns(ctx context.Context) error {
 // its schema qualifier or, when unqualified, the connection's database.
 func (s *Store) mysqlTaskColumns(ctx context.Context) (map[string]bool, error) {
 	const query = "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) AND TABLE_NAME = ?"
+
 	var schema any // NULL selects the connection's database
 	if s.tasksSchema != "" {
 		schema = s.tasksSchema
 	}
+
 	rows, err := s.db.QueryContext(ctx, query, schema, s.tasksName)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "read scheduler schema")
 	}
+
 	defer func() { _ = rows.Close() }()
+
 	cols := make(map[string]bool)
+
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return nil, coreerrs.WrapOperation(err, "read scheduler schema")
 		}
+
 		cols[strings.ToLower(name)] = true
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, coreerrs.WrapOperation(err, "read scheduler schema")
 	}
+
 	return cols, nil
 }
 
@@ -118,6 +133,7 @@ func (s *Store) mysqlTaskColumns(ctx context.Context) (map[string]bool, error) {
 // tasks — or the two can deadlock.
 func (s *Store) postgresSchema() []string {
 	tasks, history := s.tasksTable, s.historyTable
+
 	return []string{
 		`CREATE TABLE IF NOT EXISTS ` + history + ` (
   id          VARCHAR(255) COLLATE "C" PRIMARY KEY,
@@ -168,6 +184,7 @@ func (s *Store) postgresAddColumns() string {
 	for i, c := range addedColumns {
 		adds[i] = "ADD COLUMN IF NOT EXISTS " + c.name + " " + c.postgres
 	}
+
 	return "ALTER TABLE " + s.tasksTable + " " + strings.Join(adds, ", ")
 }
 
@@ -226,28 +243,37 @@ func (s *Store) mysqlEnsureUnfinishedIndex(ctx context.Context) error {
 		if s.tasksSchema != "" {
 			schema = s.tasksSchema
 		}
+
 		const query = "SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE())" +
 			" AND TABLE_NAME = ? AND INDEX_NAME = ?"
+
 		rows, err := s.db.QueryContext(ctx, query, schema, s.tasksName, strings.Trim(s.dialect.IndexName(s.tasksName, "unfinished"), "`"))
 		if err != nil {
 			return false, err
 		}
+
 		defer func() { _ = rows.Close() }()
+
 		found := rows.Next()
+
 		return found, rows.Err()
 	}
+
 	found, err := exists()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "read unfinished index")
 	}
+
 	if found {
 		return nil
 	}
+
 	_, err = s.db.ExecContext(ctx, "CREATE INDEX "+s.dialect.IndexName(s.tasksName, "unfinished")+" ON "+s.tasksTable+" (run_started_at)")
 	if err != nil {
 		if found, checkErr := exists(); checkErr == nil && found {
 			return nil
 		}
 	}
+
 	return coreerrs.WrapOperation(err, "create unfinished index")
 }
