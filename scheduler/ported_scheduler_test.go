@@ -1758,24 +1758,3 @@ func tasksSeqValues(seq iter.Seq2[*horai.TaskState, error]) iter.Seq[*horai.Task
 		}
 	}
 }
-
-// --- Pagination tests ---
-
-func registerDummyTasks(t *testing.T, s *scheduler.Scheduler, n int) {
-	t.Helper()
-	ctx := t.Context()
-
-	for i := range n {
-		id := generatePaddedID(i)
-		err := s.Register(ctx, schedtask.Config{
-			ID:       id,
-			Schedule: "@every 1h",
-			Func:     func(_ context.Context) error { return nil },
-		})
-		require.NoError(t, err, "register task %q", id)
-	}
-}
-
-func generatePaddedID(n int) string {
-	return "task-" + string(rune('a'+n/26)) + string(rune('a'+n%26))
-}
