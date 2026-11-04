@@ -28,10 +28,10 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/altessa-s/go-tlsutils"
+
 	"github.com/altessa-s/go-horai"
 	"github.com/altessa-s/go-horai/storage/storagetest"
-
-	"github.com/altessa-s/go-tlsutils"
 
 	redisstore "github.com/altessa-s/go-horai/storage/redis"
 )
