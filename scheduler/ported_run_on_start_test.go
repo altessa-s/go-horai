@@ -24,8 +24,8 @@ import (
 func TestRunOnStartForStoredTask(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		const schedule = "@every 1h"
+
 		tests := []struct {
 			name       string
 			lastRun    time.Duration // before now; 0 means never ran
@@ -43,7 +43,6 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 		}
 		for _, tc := range tests {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				ctx := t.Context()
 				storage := mustNewMemory(t, 10)
 				now := time.Now()
@@ -52,6 +51,7 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 				state := &horai.TaskState{
 					ID: "task", Status: horai.TaskStatusActive, Priority: schedtask.PriorityNormal,
 					Schedule: schedule, NextRunAt: stored}
+
 				if tc.lastRun > 0 {
 					started := now.Add(-tc.lastRun).Unix()
 					if tc.inFlight {
@@ -60,6 +60,7 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 						state.LastRunAt = started
 					}
 				}
+
 				created, err := storage.CreateTask(ctx, state)
 				require.NoError(t, err)
 				require.True(t, created)
@@ -72,6 +73,7 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 
 				got, err := storage.GetTask(ctx, "task")
 				require.NoError(t, err)
+
 				if tc.wantNow {
 					require.LessOrEqual(t, got.NextRunAt, time.Now().Unix(), "due at once")
 				} else {
@@ -79,6 +81,5 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 				}
 			})
 		}
-
 	})
 }

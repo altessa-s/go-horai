@@ -37,11 +37,13 @@ body:
         - scheduler
         - storage/memory
         - storage/sqldb
+        - storage/sqldb/internal/dialect
         - storage/storagetest
         - storage/redis
         - storage/mongo
         - storage/clickhouse
         - horaitest
+        - internal/testhelpers
         - integration/docker
         - devtools
         - ci

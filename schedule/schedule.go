@@ -43,16 +43,19 @@ func Parse(spec string) (schedule Schedule, err error) {
 	if perr := checkZonePrefix(spec); perr != nil {
 		return nil, fmt.Errorf("%w %q: %w", ErrInvalid, spec, perr)
 	}
+
 	defer func() {
 		// The parser is third-party code fed with configuration: a spec it cannot handle must be an invalid spec, not a crash.
 		if r := recover(); r != nil {
 			schedule, err = nil, fmt.Errorf("%w %q: the cron parser failed: %v", ErrInvalid, spec, r)
 		}
 	}()
+
 	schedule, err = scheduleParser.Parse(spec)
 	if err != nil {
 		return nil, fmt.Errorf("%w %q: %w", ErrInvalid, spec, err)
 	}
+
 	return schedule, nil
 }
 
@@ -65,6 +68,7 @@ func checkZonePrefix(spec string) error {
 	if (strings.HasPrefix(spec, "TZ=") || strings.HasPrefix(spec, "CRON_TZ=")) && !strings.Contains(spec, " ") {
 		return errZoneWithoutSchedule
 	}
+
 	return nil
 }
 

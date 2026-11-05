@@ -29,6 +29,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	if !task.matches(state) {
 		s.logger.DebugContext(ctx, "task state belongs to another registration, skipping execution",
 			slog.String("task_id", state.ID))
+
 		return
 	}
 
@@ -60,22 +61,28 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// stale recovery in this process never mistakes it for an abandoned run.
 	s.liveRuns.Store(runID, struct{}{})
 	defer s.liveRuns.Delete(runID)
+
 	claimCtx, claimCancel := s.storageCtx(ctx)
 	claimed, err := s.storage.ClaimRun(claimCtx, state.ID, horai.RunClaim{
 		NextRunAt: state.NextRunAt, RunAt: state.RunAt,
 		StartedAt: startTime.Unix(), RunID: runID, LeaseUntil: startTime.Unix() + leaseSeconds(s.runLease()),
 	})
+
 	claimCancel()
+
 	if err != nil {
 		s.metrics.StorageError("claim_run")
 		s.logger.ErrorContext(ctx, "failed to claim task run, aborting execution",
 			slog.String("task_id", state.ID),
 			slog.Any("error", err))
+
 		return
 	}
+
 	if !claimed {
 		s.logger.DebugContext(ctx, "task run not claimed (already running, advanced, or not active), skipping execution",
 			slog.String("task_id", state.ID))
+
 		return
 	}
 	// The claim stored the run's first lease. Keep it alive until the result is
@@ -84,10 +91,12 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// confirm the run is still ours before the body starts.
 	stopHeartbeat, owned := s.startRunHeartbeat(ctx, state.ID, runID, startTime)
 	defer stopHeartbeat()
+
 	if !owned {
 		s.logger.WarnContext(ctx, "task run ownership not confirmed after a slow claim, skipping execution",
 			slog.String("task_id", state.ID),
 			slog.String("run_id", runID))
+
 		return
 	}
 
@@ -103,8 +112,10 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 
 	// Execute the task
 	s.metrics.TaskDispatched(state.ID, task.config.Priority)
+
 	s.metrics.RunningChanged(int(s.executions.Add(1)))
 	defer func() { s.metrics.RunningChanged(int(s.executions.Add(-1))) }()
+
 	execErr := s.invoke(execCtx, task.config.Func)
 
 	endTime := s.opts.clock.Now()
@@ -145,6 +156,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 				slog.String("task_id", state.ID),
 				slog.Any("error", histErr))
 		}
+
 		histCancel()
 	}
 
@@ -157,6 +169,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 		s.logger.ErrorContext(recCtx, "failed to get fresh task state after execution",
 			slog.String("task_id", state.ID),
 			slog.Any("error", err))
+
 		return
 	}
 
@@ -172,18 +185,22 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 			slog.String("task_id", state.ID),
 			slog.String("run_id", runID),
 			slog.String("current_run_id", freshState.LastRunID))
+
 		return
 	}
 
 	nextRunAt := int64(0)
+
 	if !state.OneShot {
 		if next := s.calculateNextRun(recCtx, startTime, state); !next.IsZero() {
 			nextRunAt = next.Unix()
 		}
 	}
+
 	if !success {
 		s.logger.ErrorContext(recCtx, "task execution failed", slog.String("task_id", state.ID), slog.Any("error", execErr))
 	}
+
 	finished, err := s.storage.FinishRun(recCtx, state.ID, runID, horai.RunResult{
 		StartedAt: startTime.Unix(), EndedAt: endTime.Unix(), NextRunAt: nextRunAt,
 		RunAt: state.RunAt, Schedule: state.Schedule, Success: success,
@@ -192,6 +209,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 		s.logger.ErrorContext(recCtx, "failed to finish task run", slog.String("task_id", state.ID), slog.Any("error", err))
 		return
 	}
+
 	if !finished {
 		s.logger.WarnContext(recCtx, "task run no longer owned, discarding result", slog.String("task_id", state.ID), slog.String("run_id", runID))
 		return
@@ -209,9 +227,11 @@ func (s *Scheduler) calculateNextRun(ctx context.Context, from time.Time, state 
 	s.mu.RLock()
 	registered := s.tasks[state.ID]
 	s.mu.RUnlock()
+
 	if registered != nil && registered.parsed != nil && registered.config.Schedule == state.Schedule {
 		return registered.parsed.Next(from)
 	}
+
 	sched, err := schedule.Parse(state.Schedule)
 	if err != nil {
 		// This shouldn't happen since we validate schedule at registration,
@@ -220,6 +240,7 @@ func (s *Scheduler) calculateNextRun(ctx context.Context, from time.Time, state 
 			slog.String("task_id", state.ID),
 			slog.String("schedule", state.Schedule),
 			slog.Any("error", err))
+
 		return from.Add(time.Hour)
 	}
 
@@ -240,9 +261,11 @@ func (s *Scheduler) invoke(ctx context.Context, fn schedtask.Func) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			s.logger.ErrorContext(ctx, "task panicked", slog.String("panic_type", fmt.Sprintf("%T", p)), slog.String("stack", string(debug.Stack())))
+
 			err = errors.New("task panicked")
 		}
 	}()
+
 	return fn(ctx)
 }
 
@@ -252,7 +275,9 @@ func (s *Scheduler) advanceSchedule(ctx context.Context, from time.Time, state *
 	if next.IsZero() {
 		state.NextRunAt = 0
 		state.Status = horai.TaskStatusCompleted
+
 		return
 	}
+
 	state.NextRunAt = next.Unix()
 }

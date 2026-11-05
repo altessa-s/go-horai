@@ -17,13 +17,16 @@ import (
 // ExhaustedFinish verifies completion and the changed-schedule guard together.
 func ExhaustedFinish(t *testing.T, s horai.Store) {
 	t.Helper()
+
 	for _, status := range []horai.TaskStatus{horai.TaskStatusRunning, horai.TaskStatusPaused, horai.TaskStatusDisabled} {
 		for _, changed := range []bool{false, true} {
 			id := fmt.Sprintf("%s/%t", status, changed)
+
 			schedule := "@daily"
 			if changed {
 				schedule = "@hourly"
 			}
+
 			created, err := s.CreateTask(t.Context(), &horai.TaskState{ID: id, Status: status, Schedule: schedule, NextRunAt: 100,
 				LastRunID: "run", RunStartedAt: 1})
 			require.NoError(t, err)
@@ -33,6 +36,7 @@ func ExhaustedFinish(t *testing.T, s horai.Store) {
 			require.True(t, finished)
 			state, err := s.GetTask(t.Context(), id)
 			require.NoError(t, err)
+
 			if changed {
 				require.Equal(t, int64(100), state.NextRunAt)
 				require.NotEqual(t, horai.TaskStatusCompleted, state.Status)
@@ -40,6 +44,7 @@ func ExhaustedFinish(t *testing.T, s horai.Store) {
 				require.Zero(t, state.NextRunAt)
 				require.Equal(t, horai.TaskStatusCompleted, state.Status)
 			}
+
 			require.Zero(t, state.RunStartedAt)
 		}
 	}

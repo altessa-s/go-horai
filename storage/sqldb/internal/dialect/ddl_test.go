@@ -22,9 +22,11 @@ func TestExecPostgresDDL(t *testing.T) {
 
 	calls := fake.Calls()
 	require.Len(t, calls, 4, "one lock per distinct name, then the statements")
+
 	for _, c := range calls {
 		require.True(t, c.InTx, c.Query)
 	}
+
 	require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[0].Query)
 	require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[1].Query)
 	first, second := calls[0].Args[0].(int64), calls[1].Args[0].(int64)
@@ -41,11 +43,13 @@ func TestExecPostgresDDL(t *testing.T) {
 
 func TestExecPostgresDDLRollsBackOnFailure(t *testing.T) {
 	t.Parallel()
+
 	boom := errors.New("boom")
 	db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
 		if q == "BAD" {
 			return testhelpers.FakeSQLReply{Err: boom}
 		}
+
 		return testhelpers.FakeSQLReply{}
 	})
 	err := sqldialect.ExecPostgresDDL(t.Context(), db, []string{"t"}, []string{"OK", "BAD", "NEVER"})

@@ -28,10 +28,12 @@ func blockingOneShot(runAt time.Time, runs *atomic.Int32, release <-chan struct{
 		ID: "task", RunAt: runAt,
 		Func: func(ctx context.Context) error {
 			runs.Add(1)
+
 			select {
 			case <-release:
 			case <-ctx.Done():
 			}
+
 			return nil
 		},
 	}
@@ -56,7 +58,6 @@ func requireCompleted(t *testing.T, s *scheduler.Scheduler) {
 func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		for _, tc := range []struct {
 			name   string
 			during func(*scheduler.Scheduler, context.Context) error
@@ -68,6 +69,7 @@ func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 					if err := s.Pause(ctx, "task"); err != nil {
 						return err
 					}
+
 					return s.Resume(ctx, "task")
 				},
 			},
@@ -83,10 +85,11 @@ func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 			},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+
 				var runs atomic.Int32
+
 				release := make(chan struct{})
 				require.NoError(t, s.Register(t.Context(), blockingOneShot(time.Now(), &runs, release)))
 				require.Eventually(t, func() bool { return runs.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
@@ -98,11 +101,11 @@ func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 				if tc.after != nil {
 					require.ErrorIs(t, tc.after(s, t.Context(), "task"), horai.ErrTaskCompleted)
 				}
+
 				require.Never(t, func() bool { return runs.Load() > 1 }, time.Second, 20*time.Millisecond,
 					"a finished one-shot task ran again")
 			})
 		}
-
 	})
 }
 
@@ -112,12 +115,14 @@ func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 func TestReRegisterCompletedOneShot(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+
 		var runs atomic.Int32
+
 		released := make(chan struct{})
 		close(released)
+
 		runAt := time.Now().Add(-time.Minute)
 
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(runAt, &runs, released)))
@@ -140,7 +145,6 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 		require.Eventually(t, func() bool { return runs.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
 			"a new RunAt must schedule a new run")
 		requireCompleted(t, s)
-
 	})
 }
 
@@ -149,7 +153,6 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		lastRun := time.Now().Add(-time.Hour).Truncate(time.Second)
 
 		for _, tc := range []struct {
@@ -162,7 +165,6 @@ func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
 			{"later_run_at", lastRun.Add(time.Minute), horai.TaskStatusActive},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
 					ID: "task", Status: horai.TaskStatusCompleted, OneShot: true, LastRunAt: lastRun.Unix()}))
@@ -176,7 +178,6 @@ func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
 				require.Equal(t, tc.runAt.Unix(), st.RunAt, "registration records the RunAt from now on")
 			})
 		}
-
 	})
 }
 
@@ -185,10 +186,11 @@ func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
 func TestDisableCompletedOneShotIsRejected(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+
 		var runs atomic.Int32
+
 		released := make(chan struct{})
 		close(released)
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(time.Now(), &runs, released)))
@@ -198,7 +200,6 @@ func TestDisableCompletedOneShotIsRejected(t *testing.T) {
 		require.ErrorIs(t, s.Enable(t.Context(), "task"), horai.ErrTaskCompleted)
 		requireCompleted(t, s)
 		require.Never(t, func() bool { return runs.Load() > 1 }, 500*time.Millisecond, 20*time.Millisecond)
-
 	})
 }
 
@@ -207,7 +208,6 @@ func TestDisableCompletedOneShotIsRejected(t *testing.T) {
 func TestDisableRacingFinishIsRejected(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -221,7 +221,6 @@ func TestDisableRacingFinishIsRejected(t *testing.T) {
 		got, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
 		require.Equal(t, horai.TaskStatusCompleted, got.Status)
-
 	})
 }
 
@@ -234,13 +233,16 @@ type finishBeforeReplace struct {
 
 func (s *finishBeforeReplace) ReplaceTaskIf(ctx context.Context, state *horai.TaskState, expect horai.TaskFence) (bool, error) {
 	var err error
+
 	s.once.Do(func() {
 		_, err = s.Store.FinishRun(ctx, state.ID, "node/run",
 			horai.RunResult{StartedAt: state.RunStartedAt, EndedAt: state.RunStartedAt, RunAt: state.RunAt, Success: true})
 	})
+
 	if err != nil {
 		return false, err
 	}
+
 	return s.Store.ReplaceTaskIf(ctx, state, expect)
 }
 
@@ -251,10 +253,11 @@ func (s *finishBeforeReplace) ReplaceTaskIf(ctx context.Context, state *horai.Ta
 func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+
 		var runs atomic.Int32
+
 		release := make(chan struct{})
 		first := time.Now().Add(-time.Minute)
 		second := first.Add(time.Second)
@@ -274,7 +277,6 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)))
 		require.Never(t, func() bool { return runs.Load() > 2 }, time.Second, 20*time.Millisecond)
-
 	})
 }
 
@@ -283,16 +285,15 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 func TestRegisterRejectsEpochRunAt(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		s := engine(t, mustNewMemory(t, 10))
 		for _, runAt := range []time.Time{time.Unix(0, 0), time.Unix(-5, 0)} {
 			require.Error(t, s.Register(t.Context(), schedtask.Config{
 				ID: "task", RunAt: runAt, Func: func(context.Context) error { return nil },
 			}))
 		}
+
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "task", RunAt: time.Unix(1, 0), Func: func(context.Context) error { return nil },
 		}))
-
 	})
 }

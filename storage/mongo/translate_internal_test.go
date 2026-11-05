@@ -23,9 +23,11 @@ func TestTranslateComparisonOperators(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, bson.M{"$expr": bson.M{tc.want: bson.A{"$failures", bson.M{"$literal": int64(2)}}}}, got)
 	}
+
 	got, err := translate(query.Cmp{Field: "id", Op: query.Eq, Value: "$revision"}, query.TaskFields())
 	require.NoError(t, err)
 	require.Equal(t, bson.M{"$expr": bson.M{"$eq": bson.A{"$_id", bson.M{"$literal": "$revision"}}}}, got)
+
 	_, err = translate(query.Or{nil, query.Cmp{Field: "secret", Op: query.Eq, Value: "x"}}, query.TaskFields())
 	require.Error(t, err)
 }
@@ -36,12 +38,15 @@ func FuzzTranslation(f *testing.F) {
 		e := testhelpers.QueryTree(data, fields)
 		doc, err := translate(e, fields)
 		require.NoError(t, err)
+
 		var inspect func(any)
+
 		inspect = func(v any) {
 			switch x := v.(type) {
 			case bson.M:
 				for k, v := range x {
 					require.Contains(t, []string{"$expr", "$and", "$or", "$not", "$eq", "$ne", "$lt", "$lte", "$gt", "$gte", "$in", "$literal", "$regexMatch", "input", "regex"}, k)
+
 					if k != "$literal" {
 						inspect(v)
 					}
@@ -59,6 +64,7 @@ func FuzzTranslation(f *testing.F) {
 }
 func TestColumnRejectsUnknown(t *testing.T) {
 	t.Parallel()
+
 	_, err := column("$unknown")
 	require.ErrorIs(t, err, query.ErrInvalid)
 }
@@ -70,6 +76,7 @@ func TestFiltersAndIndexes(t *testing.T) {
 	require.NotEmpty(t, ownedRunFilter("id", "node/run"))
 	require.Len(t, taskIndexModels(), 3)
 	require.Len(t, historyIndexModels(), 2)
+
 	for _, field := range append(query.TaskFields(), query.HistoryFields()...) {
 		col, err := column(field)
 		require.NoError(t, err)

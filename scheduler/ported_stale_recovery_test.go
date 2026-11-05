@@ -31,28 +31,32 @@ type takeoverOnRecoveryRead struct {
 
 func (s *takeoverOnRecoveryRead) GetTask(ctx context.Context, id string) (*horai.TaskState, error) {
 	var err error
+
 	s.once.Do(func() {
 		var state *horai.TaskState
 		if state, err = s.Store.GetTask(ctx, id); err != nil {
 			return
 		}
+
 		if _, err = s.Store.FinishRun(ctx, id, state.LastRunID, horai.RunResult{
 			StartedAt: state.RunStartedAt, EndedAt: time.Now().Unix(), NextRunAt: state.NextRunAt, Schedule: state.Schedule, Success: true,
 		}); err != nil {
 			return
 		}
+
 		_, err = s.Store.ClaimRun(ctx, id, horai.RunClaim{NextRunAt: state.NextRunAt, StartedAt: time.Now().Unix(), RunID: "new-owner"})
 	})
+
 	if err != nil {
 		return nil, err
 	}
+
 	return s.Store.GetTask(ctx, id)
 }
 
 func TestStaleRecoveryCannotOverwriteConcurrentClaim(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem, err := memory.New(memory.WithMaxHistoryPerTask(10))
 		require.NoError(t, err)
 		require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
@@ -66,6 +70,7 @@ func TestStaleRecoveryCannotOverwriteConcurrentClaim(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Second)
 			defer cancel()
+
 			require.NoError(t, s.Stop(ctx))
 		})
 
@@ -75,7 +80,6 @@ func TestStaleRecoveryCannotOverwriteConcurrentClaim(t *testing.T) {
 		require.Equal(t, horai.TaskStatusRunning, state.Status)
 		require.NotZero(t, state.RunStartedAt)
 		require.Zero(t, state.Failures)
-
 	})
 }
 
@@ -93,21 +97,24 @@ func (s *pauseOnSkipRead) GetTask(ctx context.Context, id string) (*horai.TaskSt
 		if err != nil {
 			return nil, err
 		}
+
 		state.Status = horai.TaskStatusPaused
 		if err := seedState(s.Store, ctx, state); err != nil {
 			return nil, err
 		}
+
 		close(s.fired)
 	}
+
 	return s.Store.GetTask(ctx, id)
 }
 
 func TestSkipCannotOverwriteConcurrentPause(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem, err := memory.New(memory.WithMaxHistoryPerTask(10))
 		require.NoError(t, err)
+
 		store := &pauseOnSkipRead{Store: mem, fired: make(chan struct{})}
 
 		s := engine(t, store, scheduler.WithTickInterval(20*time.Millisecond))
@@ -115,6 +122,7 @@ func TestSkipCannotOverwriteConcurrentPause(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Second)
 			defer cancel()
+
 			require.NoError(t, s.Stop(ctx))
 		})
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
@@ -123,6 +131,7 @@ func TestSkipCannotOverwriteConcurrentPause(t *testing.T) {
 
 		state, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
+
 		state.SkipNextRun = true
 		state.NextRunAt = 1 // due now
 		require.NoError(t, seedState(mem, t.Context(), state))
@@ -142,6 +151,5 @@ func TestSkipCannotOverwriteConcurrentPause(t *testing.T) {
 		got, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
 		require.Equal(t, horai.TaskStatusPaused, got.Status)
-
 	})
 }

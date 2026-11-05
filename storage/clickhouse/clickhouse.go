@@ -58,11 +58,14 @@ func New(conn Conn, opts ...Option) (*Store, error) {
 	if nilcheck.IsNil(conn) {
 		return nil, ErrNoConn
 	}
+
 	o := newOptions(opts...)
 	if err := validateSchemaNames(o.tableName, o.engine, o.cluster); err != nil {
 		return nil, err
 	}
+
 	table := "`" + o.tableName + "`"
+
 	return &Store{
 		conn:        conn,
 		opts:        o,
@@ -80,9 +83,11 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	if err := s.conn.Exec(ctx, ddl); err != nil {
 		return coreerrs.WrapOperation(err, "create scheduler history table")
 	}
+
 	return nil
 }
 
@@ -99,6 +104,7 @@ func (s *Store) AddHistory(ctx context.Context, h *horai.TaskHistory) error {
 		h.ID, h.TaskID, h.RunID, h.Error, h.StartedAt, h.EndedAt, h.DurationMs, h.Success); err != nil {
 		return coreerrs.WrapOperation(err, "add scheduler history")
 	}
+
 	return nil
 }
 
@@ -112,6 +118,7 @@ func (s *Store) History(ctx context.Context, id string) iter.Seq2[*horai.TaskHis
 func (s *Store) CleanupHistory(ctx context.Context, cutoff int64) error {
 	syncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{"lightweight_deletes_sync": deleteSyncAllReplicas,
 		"mutations_sync": deleteSyncAllReplicas}))
+
 	return s.conn.Exec(syncCtx, "DELETE FROM "+s.table+onCluster(s.opts.cluster)+" WHERE ended_at < ?", cutoff)
 }
 
@@ -128,6 +135,7 @@ func (s *Store) DeleteHistory(ctx context.Context, id string) error {
 	if err := s.conn.Exec(syncCtx, s.deleteStmt, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete scheduler history")
 	}
+
 	return nil
 }
 
@@ -138,17 +146,22 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	stmt, args, err := s.pageStatement(taskID, pg, f)
 	if err != nil {
 		return nil, err
 	}
+
 	var page []*horai.TaskHistory
+
 	for h, err := range s.query(ctx, stmt, args...) {
 		if err != nil {
 			return nil, err
 		}
+
 		page = append(page, h)
 	}
+
 	return page, nil
 }
 
@@ -158,20 +171,28 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 func (s *Store) pageStatement(taskID string, pg horai.HistoryPage, f query.Expr) (string, []any, error) {
 	var b strings.Builder
 	b.WriteString("SELECT " + historyColumns + " FROM " + s.table + " WHERE `task_id` = ?")
+
 	args := []any{taskID}
+
 	if pg.AfterID != "" {
 		b.WriteString(" AND (`started_at` < ? OR (`started_at` = ? AND `id` < ?))")
+
 		args = append(args, pg.AfterStartedAt, pg.AfterStartedAt, pg.AfterID)
 	}
+
 	if f != nil {
 		where, filterArgs, err := translate(f, query.HistoryFields())
 		if err != nil {
 			return "", nil, err
 		}
+
 		b.WriteString(" AND (" + where + ")")
+
 		args = append(args, filterArgs...)
 	}
+
 	b.WriteString(" ORDER BY `started_at` DESC, `id` DESC LIMIT ?")
+
 	return b.String(), append(args, pg.Limit+1), nil
 }
 
@@ -184,16 +205,19 @@ func (s *Store) query(ctx context.Context, stmt string, args ...any) iter.Seq2[*
 			return
 		}
 		defer func() { _ = rows.Close() }()
+
 		for rows.Next() {
 			h := new(horai.TaskHistory)
 			if err := rows.Scan(&h.ID, &h.TaskID, &h.RunID, &h.Error, &h.StartedAt, &h.EndedAt, &h.DurationMs, &h.Success); err != nil {
 				yield(nil, coreerrs.WrapOperation(err, "scan scheduler history"))
 				return
 			}
+
 			if !yield(h, nil) {
 				return
 			}
 		}
+
 		if err := rows.Err(); err != nil {
 			yield(nil, coreerrs.WrapOperation(err, "iterate scheduler history"))
 		}

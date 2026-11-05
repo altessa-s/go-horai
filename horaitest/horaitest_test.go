@@ -20,9 +20,11 @@ import (
 
 func TestFixtures(t *testing.T) {
 	t.Parallel()
+
 	c := horaitest.NewClock(time.Unix(100, 0))
 	c.Advance(time.Second)
 	require.Equal(t, int64(101), c.Now().Unix())
+
 	m := &horaitest.Metrics{}
 	m.TaskDispatched("id", task.PriorityHigh)
 	m.TaskFinished("id", task.PriorityHigh, time.Second, nil)
@@ -37,14 +39,17 @@ func TestFixtures(t *testing.T) {
 	require.Len(t, events, 9)
 	events[0].ID = "mutated"
 	require.Equal(t, "id", m.Events()[0].ID)
+
 	st, err := memory.New()
 	require.NoError(t, err)
+
 	fault := errors.New("injected")
 	s := &horaitest.FaultStore{Store: st, BeforeCreate: func(context.Context, *horai.TaskState) error { return fault }, BeforeGet: func(context.Context, string) error { return fault }}
 	_, err = s.CreateTask(t.Context(), &horai.TaskState{ID: "id"})
 	require.ErrorIs(t, err, fault)
 	_, err = s.GetTask(t.Context(), "id")
 	require.ErrorIs(t, err, fault)
+
 	s.BeforeCreate = func(context.Context, *horai.TaskState) error { return nil }
 	s.BeforeGet = func(context.Context, string) error { return nil }
 	ok, err := s.CreateTask(t.Context(), &horai.TaskState{ID: "id"})

@@ -37,6 +37,7 @@ var historyContracts = []struct {
 // must implement every contract, including CleanupHistory.
 func RunHistory(t *testing.T, newStore func(testing.TB) horai.HistoryStore) {
 	t.Helper()
+
 	for _, c := range historyContracts {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -54,21 +55,25 @@ func RunHistory(t *testing.T, newStore func(testing.TB) horai.HistoryStore) {
 func HistoryOrder(t *testing.T, store horai.HistoryStore) {
 	t.Helper()
 	ctx := t.Context()
+
 	for _, h := range []horai.TaskHistory{
 		{ID: "h1", StartedAt: 10}, {ID: "h3", StartedAt: 25}, {ID: "h2", StartedAt: 20}, {ID: "h4", StartedAt: 30},
 	} {
 		h.TaskID, h.EndedAt = "a", h.StartedAt+1
 		require.NoError(t, store.AddHistory(ctx, &h))
 	}
+
 	require.Equal(t, []string{"h4", "h3", "h2", "h1"}, seqIDs(t, store.History(ctx, "a"), historyID))
 
 	ids := []string{"task", "task ", "Task"}
 	for i, id := range ids {
 		require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: fmt.Sprint("t", i), TaskID: id, StartedAt: 1, EndedAt: 2}))
 	}
+
 	for i, id := range ids {
 		require.Equal(t, []string{fmt.Sprint("t", i)}, seqIDs(t, store.History(ctx, id), historyID), "task %q", id)
 	}
+
 	require.Empty(t, seqIDs(t, store.History(ctx, "missing"), historyID))
 }
 
@@ -82,6 +87,7 @@ func HistoryOrder(t *testing.T, store horai.HistoryStore) {
 func HistoryPage(t *testing.T, store horai.HistoryStore) {
 	t.Helper()
 	ctx := t.Context()
+
 	entries := []horai.TaskHistory{
 		{ID: "h1", RunID: "r1", StartedAt: 10, DurationMs: 100, Success: true},
 		{ID: "h2", RunID: "r2", StartedAt: 20, DurationMs: 200, Error: "boom"},
@@ -93,22 +99,28 @@ func HistoryPage(t *testing.T, store horai.HistoryStore) {
 		h.TaskID, h.EndedAt = "a", h.StartedAt+1
 		require.NoError(t, store.AddHistory(ctx, &h))
 	}
+
 	require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: "other", TaskID: "b", StartedAt: 25, EndedAt: 26}))
 
 	var walked []*horai.TaskHistory
+
 	hpg := horai.HistoryPage{Limit: 2}
 	for {
 		page, err := store.ListHistory(ctx, "a", hpg, nil)
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page), 3)
 		n := min(len(page), 2)
+
 		walked = append(walked, page[:n]...)
 		if len(page) <= 2 {
 			break
 		}
+
 		hpg.AfterID, hpg.AfterStartedAt = page[n-1].ID, page[n-1].StartedAt
 	}
+
 	require.Equal(t, []string{"h4", "h3", "h2", "h1", "h5"}, sliceIDs(walked, historyID))
+
 	want := entries[3]
 	want.TaskID, want.EndedAt = "a", want.StartedAt+1
 	require.Equal(t, want, *walked[0], "every field must round-trip")
@@ -142,11 +154,14 @@ func HistoryPage(t *testing.T, store horai.HistoryStore) {
 //nolint:mnd // Fixed timestamps describe the storage contract.
 func HistoryDelete(t *testing.T, store horai.HistoryStore) {
 	t.Helper()
+
 	deleter := store
+
 	ctx := t.Context()
 	for _, id := range []string{"a", "A", "b"} {
 		require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: id + "1", TaskID: id, StartedAt: 1, EndedAt: 2}))
 	}
+
 	require.NoError(t, deleter.DeleteHistory(ctx, "a"))
 	require.Empty(t, seqIDs(t, store.History(ctx, "a"), historyID))
 	require.Equal(t, []string{"A1"}, seqIDs(t, store.History(ctx, "A"), historyID))
@@ -163,12 +178,14 @@ func HistoryDelete(t *testing.T, store horai.HistoryStore) {
 func HistoryCleanup(t *testing.T, store horai.HistoryStore) {
 	t.Helper()
 	ctx := t.Context()
+
 	now := time.Now().Unix()
 	for i, age := range []int64{7200, 60, 3600} {
 		require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{
 			ID: fmt.Sprint("e", i), TaskID: "hist", StartedAt: now - age - 1, EndedAt: now - age, Success: true,
 		}))
 	}
+
 	require.NoError(t, store.CleanupHistory(ctx, now-5400))
 	require.Equal(t, []string{"e1", "e2"}, seqIDs(t, store.History(ctx, "hist"), historyID))
 }
@@ -190,6 +207,7 @@ func HistoryUnknownFilterField(t *testing.T, store horai.HistoryStore) {
 	pg := horai.HistoryPage{Limit: 10}
 	check := func(stage string) {
 		t.Helper()
+
 		for _, expr := range unknownFieldFilters {
 			_, err := store.ListHistory(ctx, "a", pg, expr)
 			require.ErrorIs(t, err, query.ErrInvalid, "%s: %s", stage, expr)
@@ -204,6 +222,7 @@ func HistoryUnknownFilterField(t *testing.T, store horai.HistoryStore) {
 // index boundaries. A backend may narrow candidates only without losing matches.
 func HistoryIntegerBoundary(t *testing.T, store horai.HistoryStore) {
 	t.Helper()
+
 	const boundary int64 = 1 << 53
 	for _, h := range []horai.TaskHistory{
 		{ID: "positive", TaskID: "boundary", StartedAt: 1, EndedAt: 2, DurationMs: boundary + 1},
@@ -211,6 +230,7 @@ func HistoryIntegerBoundary(t *testing.T, store horai.HistoryStore) {
 	} {
 		require.NoError(t, store.AddHistory(t.Context(), &h))
 	}
+
 	for _, tc := range []struct {
 		op    query.Op
 		bound int64

@@ -119,6 +119,7 @@ func (t *registeredTask) matches(state *horai.TaskState) bool {
 	if oneShot != state.OneShot {
 		return false
 	}
+
 	return !oneShot || t.config.RunAt.Unix() == state.RunAt
 }
 
@@ -157,28 +158,36 @@ func New(storage horai.Store, opts ...Option) (*Scheduler, error) {
 	if o.maxConcurrentTasks > 0 {
 		defaults.reservedHighPrioritySlots = min(DefaultReservedHighPrioritySlots, o.maxConcurrentTasks-1)
 	}
+
 	for _, opt := range opts {
 		opt(defaults)
 	}
+
 	o = defaults
 	if o.instanceID == "" {
 		o.instanceID = generateID()
 	}
+
 	if nilcheck.IsNil(storage) {
 		return nil, fmt.Errorf("store: %w", coreerrs.ErrInvalidArgument)
 	}
+
 	if err := validateOptions(o); err != nil {
 		return nil, err
 	}
+
 	if nilcheck.IsNil(o.clock) {
 		o.clock = realClock{}
 	}
+
 	if nilcheck.IsNil(o.metrics) {
 		o.metrics = noopMetrics{}
 	}
+
 	if o.logger == nil {
 		o.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+
 	if nilcheck.IsNil(o.historyStore) {
 		o.historyStore = storage
 	}
@@ -195,6 +204,7 @@ func New(storage horai.Store, opts ...Option) (*Scheduler, error) {
 
 	s.metrics = o.metrics
 	s.slots = newSlots(o)
+
 	return s, nil
 }
 
@@ -216,6 +226,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.lifecycle.Unlock()
 		return errors.New("scheduler has stopped")
 	}
+
 	if !s.isRunning.CompareAndSwap(false, true) {
 		s.lifecycle.Unlock()
 		return errors.New("scheduler already running")
@@ -225,7 +236,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// ctx bounds only the start, and Stop ends the scheduler.
 	s.stopCtx, s.stopCtxCancel = context.WithCancel(context.WithoutCancel(ctx))
 	s.lifecycle.Unlock()
+
 	startCtx, startCancel := context.WithCancel(ctx)
+
 	stopStart := context.AfterFunc(s.stopCtx, startCancel) //nolint:contextcheck // Bridge Stop cancellation into the caller-bounded startup context.
 	defer stopStart()
 	defer startCancel()
@@ -234,6 +247,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.loadTasks(startCtx); err != nil {
 		s.stopCtxCancel()
 		s.isRunning.Store(false)
+
 		return coreerrs.WrapOperation(err, "load tasks")
 	}
 
@@ -245,6 +259,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if err := startCtx.Err(); err != nil {
 		s.stopCtxCancel()
 		s.isRunning.Store(false)
+
 		return coreerrs.WrapOperation(err, "start scheduler")
 	}
 
@@ -253,6 +268,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.lifecycle.Unlock()
 		return horai.ErrNotReady
 	}
+
 	s.wg.Go(s.run)
 	s.lifecycle.Unlock()
 
@@ -273,12 +289,15 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	default:
 		logAttrs = append(logAttrs, slog.String("max_concurrent_tasks", "unlimited"))
 	}
+
 	if nilcheck.IsNotNil(s.leaderElector) {
 		logAttrs = append(logAttrs, slog.String("leader_election", "enabled"))
 	}
+
 	if s.readiness != nil {
 		logAttrs = append(logAttrs, slog.String("readiness_probe", "enabled"))
 	}
+
 	s.logger.InfoContext(ctx, "scheduler started", logAttrs...)
 
 	return nil
@@ -297,15 +316,19 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 		s.lifecycle.Unlock()
 		return nil
 	}
+
 	if !s.stopping {
 		s.stopping = true
 		s.isRunning.Store(false)
 		s.stopCtxCancel()
+
 		s.stopped = make(chan struct{})
 		go func() { s.wg.Wait(); close(s.stopped) }()
 	}
+
 	done := s.stopped
 	s.lifecycle.Unlock()
+
 	select {
 	case <-done:
 		return nil
@@ -321,6 +344,7 @@ func (s *Scheduler) isLeader() bool {
 	if nilcheck.IsNil(s.leaderElector) {
 		return true
 	}
+
 	return s.leaderElector.IsLeader()
 }
 
@@ -337,8 +361,10 @@ func (s *Scheduler) isReady() bool {
 		return s.ready.Load()
 	}
 	defer s.readinessSampling.Store(false)
+
 	ready := s.readiness()
 	s.ready.Store(ready)
+
 	return ready
 }
 
@@ -353,12 +379,14 @@ type Status struct {
 func (s *Scheduler) Status() Status {
 	running := s.isRunning.Load()
 	count, available, high := s.slots.status()
+
 	return Status{running, s.isLeader(), s.isReady(), count, available, high}
 }
 func (s *Scheduler) since(t time.Time) time.Duration { return s.opts.clock.Now().Sub(t) }
 func (s *Scheduler) registrationLock(id string) *sync.Mutex {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(id))
+
 	return &s.registration[h.Sum32()%uint32(len(s.registration))]
 }
 func generateID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }

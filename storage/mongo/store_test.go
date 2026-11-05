@@ -19,6 +19,7 @@ import (
 // or network access. Disconnect joins the SDK's background activity before use.
 func TestDisconnectedClientErrors(t *testing.T) {
 	t.Parallel()
+
 	client, err := mongo.Connect()
 	require.NoError(t, err)
 	require.NoError(t, client.Disconnect(t.Context()))
@@ -27,6 +28,7 @@ func TestDisconnectedClientErrors(t *testing.T) {
 	require.ErrorIs(t, s.EnsureIndexes(t.Context()), mongo.ErrClientDisconnected)
 	_, err = s.GetTask(t.Context(), "task")
 	require.ErrorIs(t, err, mongo.ErrClientDisconnected)
+
 	for _, call := range []func() (bool, error){
 		func() (bool, error) { return s.CreateTask(t.Context(), &horai.TaskState{ID: "task"}) },
 		func() (bool, error) {
@@ -42,6 +44,7 @@ func TestDisconnectedClientErrors(t *testing.T) {
 		require.False(t, won)
 		require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	}
+
 	for _, call := range []func() error{
 		func() error { return s.AddHistory(t.Context(), &horai.TaskHistory{}) },
 		func() error { return s.DeleteHistory(t.Context(), "task") },
@@ -50,18 +53,23 @@ func TestDisconnectedClientErrors(t *testing.T) {
 	} {
 		require.ErrorIs(t, call(), mongo.ErrClientDisconnected)
 	}
+
 	for _, err := range s.Tasks(t.Context()) {
 		require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	}
+
 	for _, err := range s.DueTasks(t.Context(), 10) {
 		require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	}
+
 	for _, err := range s.UnfinishedRuns(t.Context()) {
 		require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	}
+
 	for _, err := range s.History(t.Context(), "task") {
 		require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	}
+
 	_, err = s.ListTasks(t.Context(), horai.TaskPage{Limit: 10, AfterID: "after"}, nil)
 	require.ErrorIs(t, err, mongo.ErrClientDisconnected)
 	_, err = s.ListHistory(t.Context(), "task", horai.HistoryPage{Limit: 10, AfterID: "after", AfterStartedAt: 10}, nil)
@@ -71,6 +79,7 @@ func TestDisconnectedClientErrors(t *testing.T) {
 	won, err := s.RenewRun(t.Context(), "task", "", 10)
 	require.NoError(t, err)
 	require.False(t, won)
+
 	_, err = store.New(client.Database("horai"), store.WithTasksCollection("same"), store.WithHistoryCollection("same"))
 	require.Error(t, err)
 }

@@ -41,31 +41,40 @@ func (h *compactAfterAggregate) ProcessHook(next redis.ProcessHook) redis.Proces
 		if err := next(ctx, cmd); err != nil {
 			return err
 		}
+
 		if cmd.Name() == "ft.aggregate" && h.fired.CompareAndSwap(false, true) {
 			pipe := h.client.Pipeline()
 			for _, key := range h.keys {
 				pipe.Del(ctx, key)
 			}
+
 			_, err := pipe.Exec(ctx)
+
 			return err
 		}
+
 		return nil
 	}
 }
 
 func TestRedisCompactedKeyset(t *testing.T) {
 	t.Parallel()
+
 	addr := os.Getenv("HORAI_REDIS_ADDR")
 	if addr == "" {
 		addr = endpoint(t, "redis/redis-stack-server:7.4.0-v3", "6379/tcp", nil)
 	}
+
 	compactedKeyset(t, addr, false)
 }
 
 func compactedKeyset(t *testing.T, addr string, cluster bool) {
 	t.Helper()
+
 	seed := redis.NewClient(&redis.Options{Addr: addr})
+
 	t.Cleanup(func() { require.NoError(t, seed.Close()) })
+
 	for _, protocol := range []int{2, 3} {
 		for _, history := range []bool{false, true} {
 			t.Run(fmt.Sprintf("resp%d/history=%t", protocol, history), func(t *testing.T) {
@@ -78,44 +87,60 @@ func compactedKeyset(t *testing.T, addr string, cluster bool) {
 						},
 					})
 				}
+
 				t.Cleanup(func() { require.NoError(t, client.Close()) })
+
 				prefix := namespace()
 				s, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))
 				require.NoError(t, err)
 				require.NoError(t, s.EnsureIndexes(t.Context()))
+
 				var deleted []string
+
 				pipe := seed.Pipeline()
+
 				for i := range 1002 {
 					id := fmt.Sprintf("Id:%04d", i)
 					key := prefix + ":task:" + id
+
 					var body any = map[string]any{"id": id, "next_run_at": 1}
 					if history {
 						key = prefix + ":history:Task:" + id
 						body = map[string]any{"id": id, "task_id": "Task", "started_at": i / 2}
 					}
+
 					pipe.JSONSet(t.Context(), key, "$", body)
+
 					if (!history && i < 1000) || (history && i >= 2) {
 						deleted = append(deleted, key)
 					}
 				}
+
 				_, err = pipe.Exec(t.Context())
 				require.NoError(t, err)
+
 				if history {
 					// Reverse ID order and timestamp ties expose incorrect server
 					// ordering, including the seek after a full 1000-row page.
 					var ids []string
+
 					for row, err := range s.History(t.Context(), "Task") {
 						require.NoError(t, err)
+
 						ids = append(ids, row.ID)
 					}
+
 					want := make([]string, 1002)
 					for i := range want {
 						want[i] = fmt.Sprintf("Id:%04d", len(want)-1-i)
 					}
+
 					require.Equal(t, want, ids)
 				}
+
 				hook := &compactAfterAggregate{client: seed, keys: deleted}
 				client.AddHook(hook)
+
 				if history {
 					rows, err := s.ListHistory(t.Context(), "Task", horai.HistoryPage{Limit: 1}, nil)
 					require.NoError(t, err)
@@ -129,6 +154,7 @@ func compactedKeyset(t *testing.T, addr string, cluster bool) {
 					require.Equal(t, "Id:1000", rows[0].ID)
 					require.Equal(t, "Id:1001", rows[1].ID)
 				}
+
 				require.True(t, hook.fired.Load())
 			})
 		}

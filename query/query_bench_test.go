@@ -13,7 +13,9 @@ import (
 func BenchmarkMatch(b *testing.B) {
 	e := query.Cmp{Field: "status", Op: query.Eq, Value: int64(1)}
 	r := query.Record{"status": int64(1)}
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		if !query.Match(e, r) {
 			b.Fatal("match")
@@ -22,6 +24,7 @@ func BenchmarkMatch(b *testing.B) {
 }
 func BenchmarkValidate(b *testing.B) {
 	e := query.Cmp{Field: "status", Op: query.Eq, Value: int64(1)}
+
 	fields := query.TaskFields()
 	for b.Loop() {
 		if err := query.Validate(e, fields); err != nil {

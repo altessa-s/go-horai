@@ -19,6 +19,7 @@ func TestParseSchedule(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+
 	tests := []struct {
 		name string
 		spec string
@@ -35,6 +36,7 @@ func TestParseSchedule(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			parsed, err := schedule.Parse(tt.spec)
 			require.NoError(t, err)
 			require.True(t, tt.want.Equal(parsed.Next(from)), "next = %s, want %s", parsed.Next(from), tt.want)
@@ -79,6 +81,7 @@ func TestParseSchedule_Invalid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			parsed, err := schedule.Parse(tt.spec)
 			require.Nil(t, parsed)
 			require.ErrorIs(t, err, schedule.ErrInvalid)

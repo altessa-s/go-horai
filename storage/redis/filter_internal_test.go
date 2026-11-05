@@ -25,12 +25,16 @@ func TestFilterPlan(t *testing.T) {
 	require.True(t, p.match(query.Record{"status": int64(2), "id": "a*"}))
 	require.False(t, p.match(query.Record{"status": int64(2), "id": "abc"}))
 	require.Empty(t, pushdown(query.Cmp{Field: "startedAt", Op: query.Eq, Value: int64(1 << 54)}))
+
 	for _, op := range []query.Op{query.Ne, query.In, query.Contains, query.Prefix} {
 		require.Empty(t, pushdown(query.Cmp{Field: "status", Op: op, Value: int64(1)}))
 	}
+
 	_, err = newFilterPlan(query.Cmp{Field: "secret", Op: query.Eq, Value: ""}, query.TaskFields())
 	require.Error(t, err)
+
 	var client *rdb.Client
+
 	_, err = New(client)
 	require.Error(t, err)
 }
@@ -43,12 +47,15 @@ func FuzzFilter(f *testing.F) {
 		require.NoError(t, err)
 		require.NotContains(t, plan.query, "value:")
 		require.Equal(t, strings.Count(plan.query, "["), strings.Count(plan.query, "]"))
+
 		if plan.query != "" {
 			require.Regexp(t, `^(@(status|priority|failures|startedAt|endedAt|durationMs):\[[()0-9+inf -]+\] ?)+$`, plan.query)
 		}
+
 		for _, r := range []query.Record{nil, {"status": int64(2), "id": "value:"}} {
 			require.Equal(t, query.Match(e, r), plan.match(r))
 		}
+
 		escaped := escapeTag(string(data))
 		require.NotRegexp(t, regexp.MustCompile(`(^|[^\\])\{`), escaped)
 	})
@@ -56,6 +63,7 @@ func FuzzFilter(f *testing.F) {
 
 func TestFilterPrecisionBoundary(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		bound, value int64
 		op           query.Op

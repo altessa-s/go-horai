@@ -18,10 +18,13 @@ import (
 
 func TestEnsureIndexesWaitsForHistory(t *testing.T) {
 	t.Parallel()
+
 	for _, cancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ready", true: "canceled"}[cancel], func(t *testing.T) {
 			t.Parallel()
+
 			client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
+
 			t.Cleanup(func() { require.NoError(t, client.Close()) })
 			synctest.Test(t, func(t *testing.T) {
 				hook := &sequenceHook{t: t, steps: []replyStep{
@@ -36,19 +39,25 @@ func TestEnsureIndexesWaitsForHistory(t *testing.T) {
 						replyStep{args: []any{"FT.SEARCH", "scheduler:idx:tasks:v2", "-@nextRunAt:[-inf +inf]", "NOCONTENT", "SORTBY", "id", "ASC", "LIMIT", 0, 1000, "DIALECT", 2}, value: redis.FTSearchResult{}},
 					)
 				}
+
 				client.AddHook(hook)
 				s, err := store.New(client)
 				require.NoError(t, err)
+
 				ctx, stop := context.WithCancel(t.Context())
 				defer stop()
+
 				done := make(chan error, 1)
 				go func() { done <- s.EnsureIndexes(ctx) }()
+
 				synctest.Wait()
+
 				select {
 				case err := <-done:
 					t.Fatalf("initialization returned before indexing completed: %v", err)
 				default:
 				}
+
 				if cancel {
 					stop()
 					require.ErrorIs(t, <-done, context.Canceled)
@@ -56,6 +65,7 @@ func TestEnsureIndexesWaitsForHistory(t *testing.T) {
 					time.Sleep(50 * time.Millisecond)
 					require.NoError(t, <-done)
 				}
+
 				require.Empty(t, hook.steps)
 			})
 		})

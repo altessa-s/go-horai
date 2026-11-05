@@ -20,6 +20,7 @@ import (
 //nolint:mnd // Fixed timestamps describe the storage contract.
 func ReplaceTaskIf(t *testing.T, store horai.Store) {
 	t.Helper()
+
 	running := func(id string) *horai.TaskState {
 		return &horai.TaskState{
 			ID: id, Status: horai.TaskStatusRunning, Schedule: "@every 1m", NextRunAt: 300, LastRunID: "owner", RunStartedAt: 100}
@@ -29,6 +30,7 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 		next.Status = horai.TaskStatusActive
 		next.RunStartedAt = 0
 		next.Failures = 1
+
 		return &next
 	}
 
@@ -46,11 +48,13 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			state := running("replace_" + tc.name)
 			require.NoError(t, seed(t.Context(), store, state))
 
 			stored, err := store.GetTask(t.Context(), state.ID)
 			require.NoError(t, err)
+
 			fence := horai.FenceOf(stored)
 			tc.mutate(&fence)
 			ok, err := store.ReplaceTaskIf(t.Context(), reset(stored), fence)
@@ -59,6 +63,7 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 			got, err := store.GetTask(t.Context(), state.ID)
 			require.NoError(t, err)
+
 			if tc.wantHit {
 				require.Equal(t, horai.TaskStatusActive, got.Status)
 				require.Zero(t, got.RunStartedAt)
@@ -72,12 +77,14 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 	t.Run("zero_fields", func(t *testing.T) {
 		t.Parallel()
+
 		state := &horai.TaskState{
 			ID: "replace_zero", Status: horai.TaskStatusActive, OneShot: true}
 		require.NoError(t, seed(t.Context(), store, state))
 
 		stored, err := store.GetTask(t.Context(), state.ID)
 		require.NoError(t, err)
+
 		next := *stored
 		next.Status = horai.TaskStatusCompleted
 		ok, err := store.ReplaceTaskIf(t.Context(), &next, horai.FenceOf(stored))
@@ -87,10 +94,12 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 	t.Run("concurrent_upsert", func(t *testing.T) {
 		t.Parallel()
+
 		state := running("replace_concurrent_upsert")
 		require.NoError(t, seed(t.Context(), store, state))
 		stored, err := store.GetTask(t.Context(), state.ID)
 		require.NoError(t, err)
+
 		fence := horai.FenceOf(stored)
 
 		// A write that leaves every run-ownership field untouched.
@@ -108,13 +117,16 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 	t.Run("revision_increments", func(t *testing.T) {
 		t.Parallel()
+
 		state := &horai.TaskState{
 			ID: "replace_revision", Status: horai.TaskStatusActive, Schedule: "@every 1m", NextRunAt: 300, Revision: 99} // caller-supplied revisions are ignored
 		rev := func() int64 {
 			got, err := store.GetTask(t.Context(), state.ID)
 			require.NoError(t, err)
+
 			return got.Revision
 		}
+
 		require.NoError(t, seed(t.Context(), store, state))
 		require.Equal(t, int64(1), rev())
 		require.NoError(t, seed(t.Context(), store, state))
@@ -141,6 +153,7 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 	t.Run("dollar_strings_round_trip", func(t *testing.T) {
 		t.Parallel()
+
 		state := &horai.TaskState{
 			ID: "replace_dollar", Status: horai.TaskStatusActive, Description: "$status", Meta: map[string]string{"k": "$revision"}}
 		require.NoError(t, seed(t.Context(), store, state))
@@ -152,6 +165,7 @@ func ReplaceTaskIf(t *testing.T, store horai.Store) {
 
 	t.Run("missing", func(t *testing.T) {
 		t.Parallel()
+
 		state := running("replace_missing")
 		ok, err := store.ReplaceTaskIf(t.Context(), state, horai.FenceOf(state))
 		require.NoError(t, err)

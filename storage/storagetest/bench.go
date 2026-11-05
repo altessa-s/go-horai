@@ -22,7 +22,9 @@ func Bench(b *testing.B, newStore func(testing.TB) horai.Store) {
 	b.Run("ClaimRun", func(b *testing.B) {
 		s := newStore(b)
 		state := &horai.TaskState{ID: "bench", Status: horai.TaskStatusActive}
+
 		b.ReportAllocs()
+
 		for b.Loop() {
 			b.StopTimer()
 			require.NoError(b, seed(b.Context(), s, state))
@@ -36,6 +38,7 @@ func Bench(b *testing.B, newStore func(testing.TB) horai.Store) {
 		s := newStore(b)
 		require.NoError(b, seed(b.Context(), s, &horai.TaskState{ID: "bench", Status: horai.TaskStatusRunning, LastRunID: "owner/run", RunStartedAt: 100}))
 		b.ReportAllocs()
+
 		for b.Loop() {
 			ok, err := s.RenewRun(b.Context(), "bench", "owner/run", 200)
 			require.NoError(b, err)
@@ -47,21 +50,29 @@ func Bench(b *testing.B, newStore func(testing.TB) horai.Store) {
 		for i := range 10000 {
 			require.NoError(b, seed(b.Context(), s, &horai.TaskState{ID: fmt.Sprint(i), Status: horai.TaskStatusActive, NextRunAt: 100}))
 		}
+
 		b.ReportAllocs()
+
 		for b.Loop() {
 			count := 0
+
 			for _, err := range s.DueTasks(b.Context(), 100) {
 				require.NoError(b, err)
+
 				count++
 			}
+
 			require.Equal(b, 10000, count)
 		}
 	})
 	b.Run("ListTasks/filter", func(b *testing.B) {
 		s := newStore(b)
 		require.NoError(b, seed(b.Context(), s, &horai.TaskState{ID: "bench", Status: horai.TaskStatusActive}))
+
 		filter := query.Cmp{Field: "id", Op: query.Prefix, Value: "ben"}
+
 		b.ReportAllocs()
+
 		for b.Loop() {
 			rows, err := s.ListTasks(b.Context(), horai.TaskPage{Limit: 50}, filter)
 			require.NoError(b, err)
@@ -71,6 +82,7 @@ func Bench(b *testing.B, newStore func(testing.TB) horai.Store) {
 	b.Run("AddHistory", func(b *testing.B) {
 		s := newStore(b)
 		b.ReportAllocs()
+
 		i := 0
 		for b.Loop() {
 			i++

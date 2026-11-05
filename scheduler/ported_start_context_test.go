@@ -22,10 +22,10 @@ import (
 func TestStart_ContextBoundsOnlyTheStart(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 10)
 		s := engine(t, storage, scheduler.WithTickInterval(10*time.Millisecond))
 		ran := make(chan struct{}, 1)
+
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "task", Schedule: "@every 1h", RunOnStart: true,
 			Func: func(context.Context) error {
@@ -33,6 +33,7 @@ func TestStart_ContextBoundsOnlyTheStart(t *testing.T) {
 				case ran <- struct{}{}:
 				default:
 				}
+
 				return nil
 			},
 		}))
@@ -47,7 +48,6 @@ func TestStart_ContextBoundsOnlyTheStart(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("the scheduler stopped with its start context")
 		}
-
 	})
 }
 
@@ -55,11 +55,9 @@ func TestStart_ContextBoundsOnlyTheStart(t *testing.T) {
 func TestStart_EndedContextFails(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		s := engine(t, mustNewMemory(t, 10))
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		require.ErrorIs(t, s.Start(ctx), context.Canceled)
-
 	})
 }

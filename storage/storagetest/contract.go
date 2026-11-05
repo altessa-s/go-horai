@@ -35,6 +35,7 @@ func ClaimRun(t *testing.T, store horai.Store) {
 	}
 
 	put("claim_race", horai.TaskStatusActive)
+
 	var (
 		wins atomic.Int32
 		wg   sync.WaitGroup
@@ -46,34 +47,42 @@ func ClaimRun(t *testing.T, store horai.Store) {
 			ok, err := store.ClaimRun(ctx, "claim_race", horai.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: fmt.Sprintf("run-%d", i)})
 			if err != nil {
 				mu.Lock()
+
 				errs = append(errs, err)
 				mu.Unlock()
+
 				return
 			}
+
 			if ok {
 				wins.Add(1)
 			}
 		})
 	}
+
 	wg.Wait()
 	require.Empty(t, errs, "a losing concurrent claim must report false, not an error")
 	require.Equal(t, int32(1), wins.Load(), "exactly one concurrent claim must win")
+
 	got, err := store.GetTask(ctx, "claim_race")
 	require.NoError(t, err)
 	require.Equal(t, horai.TaskStatusRunning, got.Status)
 	require.Equal(t, int64(100), got.RunStartedAt)
 
 	put("claim_stale", horai.TaskStatusActive)
+
 	ok, err := store.ClaimRun(ctx, "claim_stale", horai.RunClaim{NextRunAt: 299, StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok, "a stale occurrence fence must lose")
 
 	put("claim_paused", horai.TaskStatusPaused)
+
 	ok, err = store.ClaimRun(ctx, "claim_paused", horai.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok, "a paused task must not be claimed")
 
 	put("claim_zero_fence", horai.TaskStatusActive)
+
 	ok, err = store.ClaimRun(ctx, "claim_zero_fence", horai.RunClaim{StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok, "a zero fence claims only a zero occurrence")
@@ -91,6 +100,7 @@ func ClaimRun(t *testing.T, store horai.Store) {
 //nolint:mnd // Fixed timestamps describe the storage contract.
 func DueTasks(t *testing.T, store horai.Store) {
 	t.Helper()
+
 	ctx := t.Context()
 	for _, s := range []horai.TaskSummary{
 		{ID: "due_c", Status: horai.TaskStatusActive, NextRunAt: 100},
@@ -101,6 +111,7 @@ func DueTasks(t *testing.T, store horai.Store) {
 	} {
 		require.NoError(t, seed(ctx, store, &horai.TaskState{TaskSummary: s}))
 	}
+
 	require.Equal(t, []string{"due_a", "due_c"}, seqIDs(t, store.DueTasks(ctx, 200), taskID))
 	require.ElementsMatch(t, []string{"due_a", "due_b", "due_c", "due_d", "due_e"}, seqIDs(t, store.Tasks(ctx), taskID))
 }
@@ -135,6 +146,7 @@ func DueTasksZeroNextRun(t *testing.T, store horai.Store) {
 	require.True(t, replaced)
 
 	require.Equal(t, []string{"neg"}, seqIDs(t, store.DueTasks(ctx, -1), taskID), "zero is after now = -1")
+
 	zeros := []string{"neg", "zero_create", "zero_replace", "zero_upsert"}
 	require.Equal(t, zeros, seqIDs(t, store.DueTasks(ctx, 0), taskID))
 	require.Equal(t, zeros, seqIDs(t, store.DueTasks(ctx, 200), taskID))
@@ -148,6 +160,7 @@ func DueTasksZeroNextRun(t *testing.T, store horai.Store) {
 		horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
 	require.True(t, finished)
+
 	stale, err := store.ClaimRun(ctx, "zero_upsert", horai.RunClaim{NextRunAt: 0, StartedAt: 120, RunID: "late/run"})
 	require.NoError(t, err)
 	require.False(t, stale, "a dispatch that read the zero before the run finished must not run the task again")
@@ -166,12 +179,14 @@ func DueTasksZeroNextRun(t *testing.T, store horai.Store) {
 func Identity(t *testing.T, store horai.Store) {
 	t.Helper()
 	ctx := t.Context()
+
 	ids := []string{"task", "task ", "Task"}
 	for i, id := range ids {
 		require.NoError(t, seed(ctx, store, &horai.TaskState{
 			ID: id, Status: horai.TaskStatusActive, Description: fmt.Sprint(i), Meta: map[string]string{"emoji": "🚀", "k": "$revision"}}))
 		require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: "h" + fmt.Sprint(i), TaskID: id, StartedAt: 1, EndedAt: 2}))
 	}
+
 	for i, id := range ids {
 		got, err := store.GetTask(ctx, id)
 		require.NoError(t, err)
@@ -180,6 +195,7 @@ func Identity(t *testing.T, store horai.Store) {
 		require.Equal(t, map[string]string{"emoji": "🚀", "k": "$revision"}, got.Meta)
 		require.Len(t, seqIDs(t, store.History(ctx, id), historyID), 1)
 	}
+
 	require.NoError(t, store.DeleteTask(ctx, "task "))
 	got, err := store.GetTask(ctx, "task")
 	require.NoError(t, err)
@@ -201,29 +217,36 @@ func Identity(t *testing.T, store horai.Store) {
 func TaskPage(t *testing.T, store horai.Store) {
 	t.Helper()
 	ctx := t.Context()
+
 	ids := []string{"B", "a", "a_1", "a1", "b", "z", "Alpha"}
 	for i, id := range ids {
 		require.NoError(t, seed(ctx, store, &horai.TaskState{
 			ID: id, Status: horai.TaskStatusActive, Priority: task.Priority(i % 3), OneShot: i%2 == 0,
 			Description: map[bool]string{true: "Alpha job", false: "alpha job"}[i%2 == 0]}))
 	}
+
 	want := slices.Sorted(slices.Values(ids))
 
 	var walked []string
+
 	pg := horai.TaskPage{Limit: 2}
 	for {
 		page, err := store.ListTasks(ctx, pg, nil)
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page), 3)
+
 		n := min(len(page), 2)
 		for _, s := range page[:n] {
 			walked = append(walked, s.ID)
 		}
+
 		if len(page) <= 2 {
 			break
 		}
+
 		pg.AfterID = page[n-1].ID
 	}
+
 	require.Equal(t, want, walked, "pages must walk every task once in byte-wise ID order")
 
 	for _, tc := range []struct {
@@ -248,22 +271,28 @@ func TaskPage(t *testing.T, store horai.Store) {
 		h.TaskID, h.EndedAt = "a", h.StartedAt+1
 		require.NoError(t, store.AddHistory(ctx, &h))
 	}
+
 	require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{ID: "other", TaskID: "b", StartedAt: 25}))
 
 	var hist []string
+
 	hpg := horai.HistoryPage{Limit: 2}
 	for {
 		page, err := store.ListHistory(ctx, "a", hpg, nil)
 		require.NoError(t, err)
+
 		n := min(len(page), 2)
 		for _, h := range page[:n] {
 			hist = append(hist, h.ID)
 		}
+
 		if len(page) <= 2 {
 			break
 		}
+
 		hpg.AfterID, hpg.AfterStartedAt = page[n-1].ID, page[n-1].StartedAt
 	}
+
 	require.Equal(t, []string{"h4", "h3", "h2", "h1", "h5"}, hist)
 
 	page, err := store.ListHistory(ctx, "a", horai.HistoryPage{Limit: 100},
@@ -281,6 +310,7 @@ func TaskPage(t *testing.T, store horai.Store) {
 func ZeroValueFilters(t *testing.T, store horai.Store) {
 	t.Helper()
 	ctx := t.Context()
+
 	for _, s := range []horai.TaskSummary{
 		{ID: "z"},
 		{ID: "n", Description: "job", OneShot: true, NextRunAt: 7, LastRunAt: 3, SkipNextRun: true},
@@ -289,6 +319,7 @@ func ZeroValueFilters(t *testing.T, store horai.Store) {
 		s.Status = horai.TaskStatusActive
 		require.NoError(t, seed(ctx, store, &horai.TaskState{TaskSummary: s}))
 	}
+
 	for _, tc := range []struct {
 		expr query.Expr
 		want []string
@@ -317,6 +348,7 @@ func ZeroValueFilters(t *testing.T, store horai.Store) {
 		h.TaskID, h.EndedAt = "z", h.StartedAt+1
 		require.NoError(t, store.AddHistory(ctx, &h))
 	}
+
 	for _, tc := range []struct {
 		expr query.Expr
 		want []string
@@ -339,11 +371,13 @@ func ZeroValueFilters(t *testing.T, store horai.Store) {
 //nolint:mnd // Fixed page size describes the storage contract.
 func StringAnchors(t *testing.T, store horai.Store) {
 	t.Helper()
+
 	ctx := t.Context()
 	for id, description := range map[string]string{"nl": "job\n", "plain": "job", "inner": "x\njob"} {
 		require.NoError(t, seed(ctx, store, &horai.TaskState{
 			ID: id, Status: horai.TaskStatusActive, Description: description}))
 	}
+
 	for _, tc := range []struct {
 		expr query.Expr
 		want []string
@@ -365,12 +399,15 @@ func History(t *testing.T, store horai.Store) {
 	t.Helper()
 	ctx := t.Context()
 	now := time.Now().Unix()
+
 	require.NoError(t, seed(ctx, store, &horai.TaskState{ID: "hist", Status: horai.TaskStatusActive}))
+
 	for i, age := range []int64{7200, 60, 3600} {
 		require.NoError(t, store.AddHistory(ctx, &horai.TaskHistory{
 			ID: fmt.Sprint("e", i), TaskID: "hist", StartedAt: now - age - 1, EndedAt: now - age, Success: true,
 		}))
 	}
+
 	require.Equal(t, []string{"e1", "e2", "e0"}, seqIDs(t, store.History(ctx, "hist"), historyID))
 
 	require.NoError(t, store.CleanupHistory(ctx, now-5400))
@@ -398,6 +435,7 @@ func UnknownFilterField(t *testing.T, store horai.Store) {
 	pg := horai.TaskPage{Limit: 10}
 	check := func(stage string) {
 		t.Helper()
+
 		for _, expr := range unknownFieldFilters {
 			_, err := store.ListTasks(ctx, pg, expr)
 			require.ErrorIs(t, err, query.ErrInvalid, "%s: %s", stage, expr)
@@ -415,11 +453,15 @@ func historyID(h *horai.TaskHistory) string { return h.ID }
 // seqIDs drains seq, failing on any yielded error, and returns the IDs.
 func seqIDs[T any](t *testing.T, seq iter.Seq2[*T, error], id func(*T) string) []string {
 	t.Helper()
+
 	var ids []string
+
 	for v, err := range seq {
 		require.NoError(t, err)
+
 		ids = append(ids, id(v))
 	}
+
 	return ids
 }
 
@@ -428,5 +470,6 @@ func sliceIDs[T any](items []*T, id func(*T) string) []string {
 	for _, v := range items {
 		ids = append(ids, id(v))
 	}
+
 	return ids
 }

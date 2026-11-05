@@ -14,5 +14,6 @@ func ValidatePageLimit(limit int64) error {
 	if limit < 1 || limit > MaxStorePageLimit {
 		return fmt.Errorf("%w: page limit must be between 1 and %d", ErrInvalidArgument, MaxStorePageLimit)
 	}
+
 	return nil
 }

@@ -38,6 +38,7 @@ func containerAddress(t testing.TB, c testcontainers.Container, port string) str
 	require.NoError(t, err)
 	mapped, err := c.MappedPort(t.Context(), port)
 	require.NoError(t, err)
+
 	return net.JoinHostPort(host, mapped.Port())
 }
 func TestRedisCluster(t *testing.T) {
@@ -47,25 +48,30 @@ func TestRedisCluster(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, c.Terminate(context.WithoutCancel(t.Context()))) })
 	addr := containerAddress(t, c, "6379/tcp")
 	admin := rdb.NewClient(&rdb.Options{Addr: addr})
+
 	t.Cleanup(func() { require.NoError(t, admin.Close()) })
 	require.NoError(t, admin.Do(t.Context(), "CLUSTER", "ADDSLOTSRANGE", 0, 16383).Err())
 	// A deterministic slot map exposes the container's mapped address to the host.
 	client := rdb.NewClusterClient(&rdb.ClusterOptions{Addrs: []string{addr}, ClusterSlots: func(context.Context) ([]rdb.ClusterSlot, error) {
 		return []rdb.ClusterSlot{{Start: 0, End: 16383, Nodes: []rdb.ClusterNode{{Addr: addr}}}}, nil
 	}})
+
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	require.Eventually(t, func() bool { return client.Set(t.Context(), "cluster-ready", "1", time.Minute).Err() == nil }, time.Minute, 100*time.Millisecond)
 	t.Run("compacted_keyset", func(t *testing.T) { compactedKeyset(t, addr, true) })
 	storagetest.Run(t, func(t testing.TB) horai.Store {
 		t.Helper()
+
 		s, err := redisstore.New(client, redisstore.WithKeyPrefix(namespace()))
 		require.NoError(t, err)
 		require.NoError(t, s.EnsureIndexes(t.Context()))
+
 		return s
 	})
 }
 func TestMongoReplicaTLS(t *testing.T) {
 	t.Parallel()
+
 	for _, image := range []string{"mongo:7", "mongo:8"} {
 		t.Run(image, func(t *testing.T) {
 			t.Parallel()
@@ -83,27 +89,34 @@ func TestMongoReplicaTLS(t *testing.T) {
 			// Ping succeeds before election. Check the same TLS client used by the store.
 			readyCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
+
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
+
 			for {
 				var hello struct {
 					Writable bool `bson:"isWritablePrimary"`
 				}
+
 				err := client.Database("admin").RunCommand(readyCtx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
 				if err == nil && hello.Writable {
 					break
 				}
+
 				select {
 				case <-readyCtx.Done():
 					t.Fatalf("MongoDB rs0 did not elect a writable primary within one minute: %v (last hello error: %v)", readyCtx.Err(), err)
 				case <-ticker.C:
 				}
 			}
+
 			storagetest.Run(t, func(t testing.TB) horai.Store {
 				t.Helper()
+
 				s, err := mongostore.New(client.Database(namespace()))
 				require.NoError(t, err)
 				require.NoError(t, s.EnsureIndexes(t.Context()))
+
 				return s
 			})
 		})
@@ -117,16 +130,21 @@ func TestPostgresTLS(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, c.Terminate(context.WithoutCancel(t.Context()))) })
 	cfg, err := pgx.ParseConfig("postgres://postgres:horai-test@" + containerAddress(t, c, "5432/tcp") + "/horai?sslmode=require")
 	require.NoError(t, err)
+
 	cfg.TLSConfig = config
 	cfg.Fallbacks = nil
+
 	var db *sql.DB = stdlib.OpenDB(*cfg)
+
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	require.Eventually(t, func() bool { return db.PingContext(t.Context()) == nil }, time.Minute, 100*time.Millisecond)
 	storagetest.Run(t, func(t testing.TB) horai.Store {
 		t.Helper()
+
 		s, err := sqldb.New(db, sqldb.Postgres, sqldb.WithTasksTable(namespace()), sqldb.WithHistoryTable(namespace()))
 		require.NoError(t, err)
 		require.NoError(t, s.EnsureSchema(t.Context()))
+
 		return s
 	})
 }

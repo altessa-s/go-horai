@@ -16,6 +16,10 @@ import (
 type Option func(o *options)
 
 // WithCluster sets the cluster option.
+//
+// cluster adds an ON CLUSTER clause to the DDL and to DeleteHistory. Empty
+// means a single-node table. Pair it with a Replicated* engine: ON CLUSTER
+// only distributes the statement, not the data.
 func WithCluster[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		var value string
@@ -63,6 +67,9 @@ func WithEngine[T interface{ string | *string }](v T) Option {
 }
 
 // WithTTL sets the ttl option.
+//
+// ttl is the table TTL after the end of a run. A non-positive value
+// renders no TTL clause: history is then kept indefinitely.
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {
 		o.ttl = v

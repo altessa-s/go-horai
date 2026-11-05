@@ -18,19 +18,24 @@ func ExampleScheduler_ListTasks() {
 	if err != nil {
 		panic(err)
 	}
+
 	engine, err := scheduler.New(store)
 	if err != nil {
 		panic(err)
 	}
+
 	ctx := context.Background()
+
 	err = engine.Register(ctx, task.Config{ID: "refresh", Schedule: "@hourly", Func: func(context.Context) error { return nil }})
 	if err != nil {
 		panic(err)
 	}
+
 	page, err := engine.ListTasks(ctx, scheduler.TaskListRequest{Limit: 10})
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println(page.Items[0].ID)
 	// Output: refresh
 }

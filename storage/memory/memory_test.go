@@ -22,8 +22,10 @@ func TestHistoryContracts(t *testing.T) {
 	t.Parallel()
 	storagetest.RunHistory(t, func(t testing.TB) horai.HistoryStore {
 		t.Helper()
+
 		s, err := memory.New()
 		require.NoError(t, err)
+
 		return s
 	})
 }

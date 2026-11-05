@@ -43,6 +43,7 @@ func ClampLimit(n int) int {
 	if n <= 0 {
 		return DefaultPageSize
 	}
+
 	return min(n, MaxPageSize)
 }
 
@@ -51,24 +52,30 @@ func (s *Scheduler) ListTasks(ctx context.Context, r TaskListRequest) (*Page[*ho
 	if err := query.Validate(r.Filter, query.TaskFields()); err != nil {
 		return nil, err
 	}
+
 	n := ClampLimit(r.Limit)
+
 	p := horai.TaskPage{Limit: int64(n)}
 	if r.After != nil {
 		p.AfterID = r.After.AfterID
 	}
+
 	rows, err := s.storage.ListTasks(ctx, p, r.Filter)
 	if err != nil {
 		return nil, err
 	}
+
 	out := &Page[*horai.TaskSummary, horai.TaskCursor]{}
 	if len(rows) > n {
 		out.Next = &horai.TaskCursor{AfterID: rows[n-1].ID}
 		rows = rows[:n]
 	}
+
 	for _, row := range rows {
 		v := row.TaskSummary
 		out.Items = append(out.Items, &v)
 	}
+
 	return out, nil
 }
 
@@ -77,20 +84,25 @@ func (s *Scheduler) ListHistory(ctx context.Context, r HistoryListRequest) (*Pag
 	if err := query.Validate(r.Filter, query.HistoryFields()); err != nil {
 		return nil, err
 	}
+
 	n := ClampLimit(r.Limit)
+
 	p := horai.HistoryPage{Limit: int64(n)}
 	if r.After != nil {
 		p.AfterID = r.After.AfterID
 		p.AfterStartedAt = r.After.AfterStartedAt
 	}
+
 	rows, err := s.history.ListHistory(ctx, r.TaskID, p, r.Filter)
 	if err != nil {
 		return nil, err
 	}
+
 	out := &Page[*horai.TaskHistory, horai.HistoryCursor]{Items: rows}
 	if len(rows) > n {
 		out.Next = &horai.HistoryCursor{AfterID: rows[n-1].ID, AfterStartedAt: rows[n-1].StartedAt}
 		out.Items = rows[:n]
 	}
+
 	return out, nil
 }

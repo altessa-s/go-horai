@@ -19,7 +19,9 @@ import (
 //nolint:mnd // Fixed timestamps and counts describe the storage contract.
 func FinishRun(t *testing.T, store horai.Store) {
 	t.Helper()
+
 	result := horai.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 200, Schedule: "@every 1m", Success: true}
+
 	for _, tc := range []struct {
 		name       string
 		status     horai.TaskStatus
@@ -41,6 +43,7 @@ func FinishRun(t *testing.T, store horai.Store) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			state := &horai.TaskState{
 				ID: tc.name, Status: tc.status, Schedule: tc.schedule, NextRunAt: 300, Failures: 2, OneShot: tc.oneShot, LastRunID: "owner", RunStartedAt: 100, RunLeaseUntil: 400, RunLeaseID: "owner", Meta: map[string]string{"keep": "value"}}
 			require.NoError(t, seed(t.Context(), store, state))
@@ -95,13 +98,16 @@ func FinishRun(t *testing.T, store horai.Store) {
 			require.Equal(t, int64(100), got.LastRunAt)
 		})
 	}
+
 	t.Run("failed_run", func(t *testing.T) {
 		t.Parallel()
+
 		state := &horai.TaskState{
 			ID: "failed", Status: horai.TaskStatusRunning, Failures: 2,
 			LastRunID: "owner", RunStartedAt: 100,
 		}
 		require.NoError(t, seed(t.Context(), store, state))
+
 		failure := result
 		failure.Success = false
 		ok, err := store.FinishRun(t.Context(), state.ID, "owner", failure)
@@ -127,11 +133,13 @@ func FinishRun(t *testing.T, store horai.Store) {
 //nolint:mnd // Fixed timestamps keep the benchmark independent of the wall clock.
 func BenchmarkFinishRun(b *testing.B, store horai.Store) {
 	b.Helper()
+
 	state := &horai.TaskState{
 		ID: "bench", Status: horai.TaskStatusRunning,
 		LastRunID: "owner", RunStartedAt: 100,
 	}
 	result := horai.RunResult{StartedAt: 100, EndedAt: 110, Success: true}
+
 	for b.Loop() {
 		b.StopTimer()
 		require.NoError(b, seed(b.Context(), store, state))

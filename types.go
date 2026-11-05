@@ -183,6 +183,7 @@ func (c RunClaim) Validate() error {
 	case c.LeaseUntil < 0:
 		return fmt.Errorf("%w: LeaseUntil %d is negative", ErrInvalidRunClaim, c.LeaseUntil)
 	}
+
 	return nil
 }
 

@@ -21,12 +21,16 @@ import (
 
 func TestRedisHistoryIndexUpgrade(t *testing.T) {
 	t.Parallel()
+
 	addr := os.Getenv("HORAI_REDIS_ADDR")
 	if addr == "" {
 		addr = endpoint(t, "redis/redis-stack-server:7.4.0-v3", "6379/tcp", nil)
 	}
+
 	client := redis.NewClient(&redis.Options{Addr: addr})
+
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
 	prefix := namespace()
 	s, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))
 	require.NoError(t, err)
@@ -36,24 +40,30 @@ func TestRedisHistoryIndexUpgrade(t *testing.T) {
 	created, err := s.CreateTask(t.Context(), &horai.TaskState{ID: "Task", Status: horai.TaskStatusActive})
 	require.NoError(t, err)
 	require.True(t, created)
+
 	const count = 20000
+
 	keys := make([]string, count)
 	pipe := client.Pipeline()
+
 	for i := range count {
 		id := fmt.Sprintf("history-%05d", i)
 		keys[i] = prefix + ":history:Task:" + id
 		pipe.JSONSet(t.Context(), keys[i], "$", map[string]any{"id": id, "task_id": "Task", "started_at": i, "ended_at": i + 1})
 	}
+
 	_, err = pipe.Exec(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, s.EnsureIndexes(t.Context()))
 	// No eventual assertion: initialization must make all old history visible.
 	seen := make(map[string]bool, count)
+
 	for row, err := range s.History(t.Context(), "Task") {
 		require.NoError(t, err)
 		require.False(t, seen[row.ID])
 		seen[row.ID] = true
 	}
+
 	require.Len(t, seen, count)
 	require.NoError(t, s.DeleteTask(t.Context(), "Task"))
 	remaining, err := client.Exists(t.Context(), keys...).Result()

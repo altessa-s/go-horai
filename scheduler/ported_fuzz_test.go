@@ -27,10 +27,12 @@ func FuzzScheduler_Register(f *testing.F) {
 		storage := mustNewMemory(t, 10)
 		s := engine(t, storage, scheduler.WithTickInterval(time.Hour))
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 

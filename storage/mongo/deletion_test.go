@@ -20,8 +20,11 @@ import (
 
 func TestDeleteHistoryFailureLeavesTaskRetryable(t *testing.T) {
 	t.Parallel()
+
 	deployment := drivertest.NewMockDeployment(bson.D{{Key: "ok", Value: 0}, {Key: "code", Value: 13}, {Key: "errmsg", Value: "denied"}})
+
 	var collections []string
+
 	opts := options.Client().SetRetryWrites(false).SetMonitor(&event.CommandMonitor{Started: func(_ context.Context, e *event.CommandStartedEvent) {
 		if e.CommandName == "delete" {
 			collections = append(collections, e.Command.Lookup("delete").StringValue())
@@ -31,10 +34,12 @@ func TestDeleteHistoryFailureLeavesTaskRetryable(t *testing.T) {
 	client, err := mongo.Connect(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.Background())) })
+
 	s, err := store.New(client.Database("test"), store.WithTasksCollection("tasks"), store.WithHistoryCollection("history"))
 	require.NoError(t, err)
 	require.Error(t, s.DeleteTask(t.Context(), "task"))
 	require.Equal(t, []string{"history"}, collections)
+
 	success := bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}}
 	deployment.AddResponses(success, success)
 	require.NoError(t, s.DeleteTask(t.Context(), "task"))

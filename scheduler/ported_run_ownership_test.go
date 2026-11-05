@@ -36,27 +36,32 @@ func (s *createdAndClaimedElsewhere) GetTask(ctx context.Context, id string) (*h
 		absent bool
 		err    error
 	)
+
 	s.once.Do(func() {
 		absent = true
+
 		if err = seedState(s.Store, ctx, &horai.TaskState{
 			ID: id, Status: horai.TaskStatusActive, Schedule: "@every 1h", NextRunAt: 100}); err != nil {
 			return
 		}
+
 		_, err = s.Store.ClaimRun(ctx, id, horai.RunClaim{NextRunAt: 100, StartedAt: time.Now().Unix(), RunID: "other-instance/run"})
 	})
+
 	if err != nil {
 		return nil, err
 	}
+
 	if absent {
 		return nil, nil //nolint:nilnil // reproduces the "not found" read that lost the race
 	}
+
 	return s.Store.GetTask(ctx, id)
 }
 
 func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		s := engine(t, &createdAndClaimedElsewhere{Store: mem})
 
@@ -70,7 +75,6 @@ func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
 		require.Equal(t, "other-instance/run", got.LastRunID)
 		require.NotZero(t, got.RunStartedAt)
 		require.Equal(t, int64(100), got.NextRunAt, "the claimed occurrence must not be replaced by a fresh one")
-
 	})
 }
 
@@ -78,10 +82,12 @@ func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
 // is bound to runID, as ClaimRun and RenewRun store it.
 func seedRun(t *testing.T, mem *memory.Store, status horai.TaskStatus, runID string, startedAt, leaseUntil int64) {
 	t.Helper()
+
 	var leaseID string
 	if leaseUntil != 0 {
 		leaseID = runID
 	}
+
 	require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
 		ID: "task", Status: status, Schedule: "@every 1h", NextRunAt: startedAt,
 		LastRunID:     runID,
@@ -99,8 +105,10 @@ func startForRecovery(t *testing.T, store horai.Store, opts ...scheduler.Option)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
 		defer cancel()
+
 		require.NoError(t, s.Stop(ctx))
 	})
+
 	return s
 }
 
@@ -135,21 +143,18 @@ func neverRecovered(t *testing.T, mem *memory.Store, d time.Duration) {
 func TestStartupRecoveryLeavesLiveRunOfAnotherInstance(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", time.Now().Unix(), 0)
 
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(30*time.Minute))
 
 		requireStillRunning(t, mem, "node-b/run")
-
 	})
 }
 
 func TestStartupRecoveryReclaimsExpiredLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		old := time.Now().Add(-time.Hour).Unix()
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", old, old)
@@ -157,14 +162,12 @@ func TestStartupRecoveryReclaimsExpiredLease(t *testing.T) {
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(30*time.Minute))
 
 		requireRecovered(t, mem, horai.TaskStatusActive)
-
 	})
 }
 
 func TestStartupRecoveryReclaimsOwnRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		seedRun(t, mem, horai.TaskStatusRunning, "node-a/run", now, now+3600)
@@ -172,14 +175,12 @@ func TestStartupRecoveryReclaimsOwnRun(t *testing.T) {
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(30*time.Minute), scheduler.WithInstanceID("node-a"))
 
 		requireRecovered(t, mem, horai.TaskStatusActive)
-
 	})
 }
 
 func TestStaleRecoveryHonorsPersistedLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", time.Now().Add(-time.Hour).Unix(), time.Now().Add(time.Hour).Unix())
 
@@ -187,14 +188,12 @@ func TestStaleRecoveryHonorsPersistedLease(t *testing.T) {
 		// several periodic passes.
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(time.Second))
 		neverRecovered(t, mem, 2500*time.Millisecond)
-
 	})
 }
 
 func TestStaleRecoveryReclaimsOwnAbandonedRunWithoutWaiting(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		startForRecovery(t, mem, scheduler.WithStaleTaskTimeout(time.Second), scheduler.WithInstanceID("node-a"))
 
@@ -207,14 +206,12 @@ func TestStaleRecoveryReclaimsOwnAbandonedRunWithoutWaiting(t *testing.T) {
 			return err == nil && got.RunStartedAt == 0
 		}, 3*time.Second, 50*time.Millisecond)
 		requireRecovered(t, mem, horai.TaskStatusActive)
-
 	})
 }
 
 func TestRecoveryPreservesManagementStatus(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		old := time.Now().Add(-time.Hour).Unix()
 		seedRun(t, mem, horai.TaskStatusPaused, "node-b/run", old, old)
@@ -225,14 +222,12 @@ func TestRecoveryPreservesManagementStatus(t *testing.T) {
 		got, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
 		require.Equal(t, old, got.NextRunAt, "a paused task keeps its next run time")
-
 	})
 }
 
 func TestRegisterPreservesRunLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		leaseUntil := time.Now().Add(time.Hour).Unix()
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", time.Now().Add(-time.Hour).Unix(), leaseUntil)
@@ -246,22 +241,22 @@ func TestRegisterPreservesRunLease(t *testing.T) {
 
 		startForRecovery(t, mem)
 		requireStillRunning(t, mem, "node-b/run")
-
 	})
 }
 
 func TestLiveRunRenewsLeaseAndIsNotRecovered(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		release := make(chan struct{})
 		s := engine(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithStaleTaskTimeout(time.Second))
 		require.NoError(t, s.Start(t.Context()))
 		t.Cleanup(func() {
 			close(release)
+
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 			defer cancel()
+
 			require.NoError(t, s.Stop(ctx))
 		})
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
@@ -270,9 +265,11 @@ func TestLiveRunRenewsLeaseAndIsNotRecovered(t *testing.T) {
 		}))
 
 		var first *horai.TaskState
+
 		require.Eventually(t, func() bool {
 			got, err := mem.GetTask(t.Context(), "task")
 			first = got
+
 			return err == nil && got.RunLeaseUntil > 0
 		}, 2*time.Second, 10*time.Millisecond, "the lease must be persisted right after the claim")
 		require.GreaterOrEqual(t, first.RunLeaseUntil, first.RunStartedAt+5, "the lease is floored at five seconds")
@@ -283,7 +280,6 @@ func TestLiveRunRenewsLeaseAndIsNotRecovered(t *testing.T) {
 		}, 4*time.Second, 50*time.Millisecond, "a live run must keep renewing its lease")
 
 		requireStillRunning(t, mem, first.LastRunID)
-
 	})
 }
 
@@ -300,6 +296,7 @@ func (s *slowHistory) AddHistory(ctx context.Context, h *horai.TaskHistory) erro
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+
 	return s.Store.AddHistory(ctx, h)
 }
 
@@ -310,7 +307,6 @@ func (s *slowHistory) AddHistory(ctx context.Context, h *horai.TaskHistory) erro
 func TestSecondInstanceLeavesLiveRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		const busy = 7 * time.Second
 		for _, tc := range []struct {
 			name      string
@@ -325,9 +321,10 @@ func TestSecondInstanceLeavesLiveRun(t *testing.T) {
 			{name: "slow_finalization", ownerOpts: []scheduler.Option{scheduler.WithStaleTaskTimeout(time.Second)}, slowStore: true},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
+
 				var ownerStore horai.Store = mem
+
 				body := busy
 				if tc.slowStore {
 					ownerStore = &slowHistory{Store: mem, delay: busy}
@@ -335,15 +332,18 @@ func TestSecondInstanceLeavesLiveRun(t *testing.T) {
 				}
 
 				var runs atomic.Int32
+
 				owner := startForRecovery(t, ownerStore, append([]scheduler.Option{scheduler.WithTickInterval(20 * time.Millisecond)}, tc.ownerOpts...)...)
 				require.NoError(t, owner.Register(t.Context(), schedtask.Config{
 					ID: "task", Schedule: "@every 1h", RunOnStart: true,
 					Func: func(ctx context.Context) error {
 						runs.Add(1)
+
 						select {
 						case <-time.After(body):
 						case <-ctx.Done():
 						}
+
 						return nil
 					},
 				}))
@@ -362,7 +362,6 @@ func TestSecondInstanceLeavesLiveRun(t *testing.T) {
 				require.Equal(t, int32(1), runs.Load())
 			})
 		}
-
 	})
 }
 
@@ -373,7 +372,6 @@ func TestSecondInstanceLeavesLiveRun(t *testing.T) {
 func TestManagementDuringRunDoesNotAllowSecondClaim(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		for _, tc := range []struct {
 			name          string
 			stop, restart func(*scheduler.Scheduler, context.Context, string) error
@@ -382,18 +380,21 @@ func TestManagementDuringRunDoesNotAllowSecondClaim(t *testing.T) {
 			{"disable_enable", (*scheduler.Scheduler).Disable, (*scheduler.Scheduler).Enable},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				release := make(chan struct{})
+
 				var runs atomic.Int32
+
 				cfg := schedtask.Config{
 					ID: "task", Schedule: "@every 1s", RunOnStart: true,
 					Func: func(ctx context.Context) error {
 						runs.Add(1)
+
 						select {
 						case <-release:
 						case <-ctx.Done():
 						}
+
 						return nil
 					},
 				}
@@ -416,7 +417,6 @@ func TestManagementDuringRunDoesNotAllowSecondClaim(t *testing.T) {
 					"the task must be claimable again once the run has finished")
 			})
 		}
-
 	})
 }
 
@@ -426,7 +426,6 @@ func TestManagementDuringRunDoesNotAllowSecondClaim(t *testing.T) {
 func TestShortOwnerLeaseIsAuthoritative(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", now-10, now-2)
@@ -434,7 +433,6 @@ func TestShortOwnerLeaseIsAuthoritative(t *testing.T) {
 		startForRecovery(t, mem)
 
 		requireRecovered(t, mem, horai.TaskStatusActive)
-
 	})
 }
 
@@ -444,7 +442,6 @@ func TestShortOwnerLeaseIsAuthoritative(t *testing.T) {
 func TestRecoveryKeepsReRegisteredOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		now := time.Now().Unix()
 		later := now + 3600
@@ -463,7 +460,6 @@ func TestRecoveryKeepsReRegisteredOccurrence(t *testing.T) {
 		got, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
 		require.Equal(t, later, got.NextRunAt)
-
 	})
 }
 
@@ -477,28 +473,33 @@ type reRegisterBeforeClaim struct {
 
 func (s *reRegisterBeforeClaim) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (bool, error) {
 	var err error
+
 	s.once.Do(func() {
 		var st *horai.TaskState
 		if st, err = s.Store.GetTask(ctx, id); err != nil {
 			return
 		}
+
 		st.RunAt--
 		err = seedState(s.Store, ctx, st)
 	})
+
 	if err != nil {
 		return false, err
 	}
+
 	return s.Store.ClaimRun(ctx, id, claim)
 }
 
 func TestClaimFencesRegisteredOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		store := &reRegisterBeforeClaim{Store: mem}
 		s := startForRecovery(t, store, scheduler.WithTickInterval(20*time.Millisecond))
+
 		var runs atomic.Int32
+
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "task", RunAt: time.Now().Add(-time.Minute),
 			Func: func(context.Context) error { runs.Add(1); return nil },
@@ -512,7 +513,6 @@ func TestClaimFencesRegisteredOccurrence(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, horai.TaskStatusActive, got.Status)
 		require.Zero(t, got.RunStartedAt)
-
 	})
 }
 
@@ -528,9 +528,10 @@ func (l *leaderSwitch) IsLeader() bool { return l.on.Load() }
 func TestStaleRegistrationDoesNotRunNewOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
+
 		var oldRuns, newRuns atomic.Int32
+
 		oldLeader, newLeader := &leaderSwitch{}, &leaderSwitch{}
 		old := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithLeaderElector(oldLeader))
 		current := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithLeaderElector(newLeader))
@@ -551,7 +552,6 @@ func TestStaleRegistrationDoesNotRunNewOccurrence(t *testing.T) {
 		newLeader.on.Store(true)
 		require.Eventually(t, func() bool { return newRuns.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
 		require.Zero(t, oldRuns.Load())
-
 	})
 }
 
@@ -574,7 +574,9 @@ func (s *slowClaim) takeOverRun(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+
 	st.LastRunID = "other/run"
+
 	return seedState(s.Store, ctx, st)
 }
 
@@ -583,10 +585,13 @@ func (s *slowClaim) RenewRun(ctx context.Context, id, runID string, leaseUntil i
 	if err != nil || !ok || !s.slowRenewal || s.renewals.Add(1) > 1 {
 		return ok, err
 	}
+
 	if err = s.takeOverRun(ctx, id); err != nil {
 		return false, err
 	}
+
 	time.Sleep(s.delay)
+
 	return true, nil
 }
 
@@ -595,13 +600,16 @@ func (s *slowClaim) ClaimRun(ctx context.Context, id string, claim horai.RunClai
 	if err != nil || !ok {
 		return ok, err
 	}
+
 	if s.takeOver {
 		if err = s.takeOverRun(ctx, id); err != nil {
 			return false, err
 		}
 	}
+
 	time.Sleep(s.delay)
 	s.claimed.Store(true)
+
 	return true, nil
 }
 
@@ -611,7 +619,6 @@ func (s *slowClaim) ClaimRun(ctx context.Context, id string, claim horai.RunClai
 func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		for _, tc := range []struct {
 			name        string
 			takeOver    bool
@@ -625,12 +632,13 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 			{"late_renewal_response", false, true, 0},
 		} {
 			runCase(t, tc.name, func(t *testing.T) {
-
 				mem := mustNewMemory(t, 10)
 				store := &slowClaim{Store: mem, delay: 2 * time.Second, takeOver: tc.takeOver, slowRenewal: tc.slowRenewal}
 				// A one-second stale timeout gives the five-second minimum lease.
 				s := startForRecovery(t, store, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithStaleTaskTimeout(time.Second))
+
 				var runs atomic.Int32
+
 				require.NoError(t, s.Register(t.Context(), schedtask.Config{
 					ID: "task", Schedule: "@every 1h", RunOnStart: true,
 					Func: func(context.Context) error { runs.Add(1); return nil },
@@ -639,10 +647,13 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 				// Once the claim response is back, the ownership confirmation and the
 				// body (if any) run in the dispatch goroutine, which Stop waits for.
 				require.Eventually(t, store.claimed.Load, 5*time.Second, 10*time.Millisecond)
+
 				stopCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
 				defer cancel()
+
 				require.NoError(t, s.Stop(stopCtx))
 				require.Equal(t, tc.wantRuns, runs.Load())
+
 				if tc.wantRuns > 0 {
 					got, err := mem.GetTask(t.Context(), "task")
 					require.NoError(t, err)
@@ -650,7 +661,6 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 				}
 			})
 		}
-
 	})
 }
 
@@ -661,7 +671,6 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 func TestStaleRegistrationDoesNotStarveOtherTasks(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		leader, follower := &leaderSwitch{}, &leaderSwitch{}
 		stale := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithLeaderElector(leader),
@@ -675,7 +684,9 @@ func TestStaleRegistrationDoesNotStarveOtherTasks(t *testing.T) {
 		require.NoError(t, current.Register(t.Context(), schedtask.Config{
 			ID: "stale", RunAt: runAt.Add(time.Second), Func: func(context.Context) error { return nil },
 		}))
+
 		var runs atomic.Int32
+
 		require.NoError(t, stale.Register(t.Context(), schedtask.Config{
 			ID: "runnable", Schedule: "@every 1h", RunOnStart: true, Priority: schedtask.PriorityNormal,
 			Func: func(context.Context) error { runs.Add(1); return nil },
@@ -684,7 +695,6 @@ func TestStaleRegistrationDoesNotStarveOtherTasks(t *testing.T) {
 		leader.on.Store(true)
 		require.Eventually(t, func() bool { return runs.Load() == 1 }, 3*time.Second, 10*time.Millisecond,
 			"a stale registration starved a runnable task")
-
 	})
 }
 
@@ -694,20 +704,24 @@ func TestStaleRegistrationDoesNotStarveOtherTasks(t *testing.T) {
 func TestUnfinishedRunDoesNotStarveOtherTasks(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		cfgFor := func(id string, priority schedtask.Priority, fn func(context.Context) error) schedtask.Config {
 			return schedtask.Config{ID: id, Schedule: "@every 1s", RunOnStart: true, Priority: priority, Func: fn}
 		}
 		release := make(chan struct{})
+
 		t.Cleanup(func() { close(release) })
+
 		var remoteRuns atomic.Int32
+
 		remoteFn := func(ctx context.Context) error {
 			remoteRuns.Add(1)
+
 			select {
 			case <-release:
 			case <-ctx.Done():
 			}
+
 			return nil
 		}
 
@@ -718,6 +732,7 @@ func TestUnfinishedRunDoesNotStarveOtherTasks(t *testing.T) {
 		require.NoError(t, remote.Resume(t.Context(), "long"))
 
 		var runs atomic.Int32
+
 		local := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond),
 			scheduler.WithConcurrencyLimit(func() int { return 1 }), scheduler.WithReservedHighPrioritySlots(0))
 		require.NoError(t, local.Register(t.Context(), cfgFor("long", schedtask.PriorityHigh, remoteFn)))
@@ -731,7 +746,6 @@ func TestUnfinishedRunDoesNotStarveOtherTasks(t *testing.T) {
 
 		require.Eventually(t, func() bool { return runs.Load() >= 1 }, 3*time.Second, 10*time.Millisecond,
 			"an unclaimable task starved a runnable one")
-
 	})
 }
 
@@ -740,9 +754,9 @@ func TestUnfinishedRunDoesNotStarveOtherTasks(t *testing.T) {
 func TestMaximumStaleTimeoutLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		release := make(chan struct{})
+
 		t.Cleanup(func() { close(release) })
 		owner := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond),
 			scheduler.WithStaleTaskTimeout(time.Duration(math.MaxInt64)))
@@ -753,6 +767,7 @@ func TestMaximumStaleTimeoutLease(t *testing.T) {
 				case <-release:
 				case <-ctx.Done():
 				}
+
 				return nil
 			},
 		}))
@@ -766,7 +781,6 @@ func TestMaximumStaleTimeoutLease(t *testing.T) {
 
 		startForRecovery(t, mem)
 		requireStillRunning(t, mem, st.LastRunID)
-
 	})
 }
 
@@ -777,12 +791,12 @@ func TestMaximumStaleTimeoutLease(t *testing.T) {
 func TestZeroNextRunIsClaimedOnce(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		mem := mustNewMemory(t, 10)
 		require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
 			ID: "zero", Status: horai.TaskStatusActive, Schedule: "@every 1h"}))
 
 		var runs atomic.Int32
+
 		s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
 		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "zero", Schedule: "@every 1h", Func: func(context.Context) error { runs.Add(1); return nil },
@@ -795,6 +809,5 @@ func TestZeroNextRunIsClaimedOnce(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, horai.TaskStatusActive, st.Status)
 		require.Greater(t, st.NextRunAt, time.Now().Unix())
-
 	})
 }

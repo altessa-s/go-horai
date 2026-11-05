@@ -26,8 +26,10 @@ import (
 // construction error. Shared across all scheduler_test.go files.
 func mustNewMemory(tb testing.TB, maxHistoryPerTask int) *memory.Store {
 	tb.Helper()
+
 	s, err := memory.New(memory.WithMaxHistoryPerTask(maxHistoryPerTask))
 	require.NoError(tb, err)
+
 	return s
 }
 
@@ -38,6 +40,7 @@ func startScheduler(t *testing.T, opts ...scheduler.Option) (*scheduler.Schedule
 	t.Helper()
 
 	storage := mustNewMemory(t, 100)
+
 	opts = append([]scheduler.Option{scheduler.WithTickInterval(50 * time.Millisecond)}, opts...)
 	s := engine(t, storage, opts...)
 
@@ -48,6 +51,7 @@ func startScheduler(t *testing.T, opts ...scheduler.Option) (*scheduler.Schedule
 		// keeps the one-second grace period the tests used with defer.
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
+
 		_ = s.Stop(stopCtx)
 	})
 
@@ -60,6 +64,7 @@ func registerCountingTask(t *testing.T, ctx context.Context, s *scheduler.Schedu
 	t.Helper()
 
 	execCount := new(atomic.Int32)
+
 	require.NoError(t, s.Register(ctx, schedtask.Config{
 		ID:         id,
 		Schedule:   schedule,
@@ -76,15 +81,16 @@ func registerCountingTask(t *testing.T, ctx context.Context, s *scheduler.Schedu
 func TestScheduler_RegisterAndRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -106,22 +112,22 @@ func TestScheduler_RegisterAndRun(t *testing.T) {
 
 		count := execCount.Load()
 		require.GreaterOrEqual(t, count, int32(2), "expected at least 2 executions")
-
 	})
 }
 
 func TestScheduler_PauseResume(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -149,22 +155,22 @@ func TestScheduler_PauseResume(t *testing.T) {
 
 		time.Sleep(1500 * time.Millisecond)
 		require.NotEqual(t, int32(0), execCount.Load(), "task did not execute after resume")
-
 	})
 }
 
 func TestScheduler_SkipNextRun(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -194,22 +200,22 @@ func TestScheduler_SkipNextRun(t *testing.T) {
 
 		// Should have executed now
 		require.NotEqual(t, int32(0), execCount.Load(), "task did not execute after skip")
-
 	})
 }
 
 func TestScheduler_Tasks(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -226,28 +232,30 @@ func TestScheduler_Tasks(t *testing.T) {
 
 		// Collect tasks using iter
 		var tasks []*horai.TaskSummary
+
 		for task, err := range s.Tasks(ctx) {
 			require.NoError(t, err)
+
 			tasks = append(tasks, task)
 		}
 
 		require.Len(t, tasks, 3)
-
 	})
 }
 
 func TestScheduler_History(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -264,8 +272,10 @@ func TestScheduler_History(t *testing.T) {
 
 		// Collect history using iter
 		var history []*horai.TaskHistory
+
 		for h, err := range s.History(ctx, "history-test") {
 			require.NoError(t, err)
+
 			history = append(history, h)
 		}
 
@@ -278,14 +288,12 @@ func TestScheduler_History(t *testing.T) {
 			require.NotEmpty(t, h.RunID, "history entry missing RunID")
 			require.True(t, h.Success, "expected successful execution")
 		}
-
 	})
 }
 
 func TestMemoryStorage_GetTask(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		ctx := t.Context()
 
@@ -310,14 +318,12 @@ func TestMemoryStorage_GetTask(t *testing.T) {
 		require.Equal(t, expected.ID, state.ID)
 		require.Equal(t, "value", state.Meta["key"])
 		require.Equal(t, expected.Priority, state.Priority)
-
 	})
 }
 
 func TestMemoryStorage_History(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 5) // Small limit for testing
 		ctx := t.Context()
 
@@ -337,8 +343,10 @@ func TestMemoryStorage_History(t *testing.T) {
 
 		// Collect history using iter
 		var history []*horai.TaskHistory
+
 		for h, err := range storage.History(ctx, taskID) {
 			require.NoError(t, err)
+
 			history = append(history, h)
 		}
 
@@ -349,14 +357,12 @@ func TestMemoryStorage_History(t *testing.T) {
 		for i := 1; i < len(history); i++ {
 			require.GreaterOrEqual(t, history[i-1].StartedAt, history[i].StartedAt, "history not sorted by start time descending")
 		}
-
 	})
 }
 
 func TestScheduler_ConcurrencyLimit(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// Limit to 2 concurrent tasks
 		s := engine(t, storage,
@@ -366,10 +372,12 @@ func TestScheduler_ConcurrencyLimit(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -391,13 +399,15 @@ func TestScheduler_ConcurrencyLimit(t *testing.T) {
 					current := concurrent.Add(1)
 					// Update max if needed
 					for {
-						max := maxObserved.Load()
-						if current <= max || maxObserved.CompareAndSwap(max, current) {
+						seen := maxObserved.Load()
+						if current <= seen || maxObserved.CompareAndSwap(seen, current) {
 							break
 						}
 					}
+
 					time.Sleep(taskDuration)
 					concurrent.Add(-1)
+
 					return nil
 				},
 			})
@@ -413,23 +423,23 @@ func TestScheduler_ConcurrencyLimit(t *testing.T) {
 
 		// Verify monitoring methods
 		require.GreaterOrEqual(t, s.Status().AvailableSlots, 0, "AvailableSlots should be >= 0 when limit is set")
-
 	})
 }
 
 func TestScheduler_UnlimitedConcurrency(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// No concurrency limit (default)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -438,14 +448,12 @@ func TestScheduler_UnlimitedConcurrency(t *testing.T) {
 
 		// RunningTasksCount returns 0 when unlimited (not tracked)
 		require.Equal(t, 0, s.Status().RunningTasks, "RunningTasksCount should be 0 for unlimited")
-
 	})
 }
 
 func TestScheduler_LongRunningTasksDoNotBlock(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage,
 			scheduler.WithTickInterval(50*time.Millisecond),
@@ -453,10 +461,12 @@ func TestScheduler_LongRunningTasksDoNotBlock(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -492,14 +502,12 @@ func TestScheduler_LongRunningTasksDoNotBlock(t *testing.T) {
 
 		runs := fastTaskRuns.Load()
 		require.GreaterOrEqual(t, runs, int32(2), "fast task should have run multiple times")
-
 	})
 }
 
 func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage,
 			scheduler.WithTickInterval(50*time.Millisecond),
@@ -508,10 +516,12 @@ func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -529,6 +539,7 @@ func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
 			Func: func(_ context.Context) error {
 				normalCount.Add(1)
 				time.Sleep(300 * time.Millisecond)
+
 				return nil
 			},
 		})
@@ -552,14 +563,12 @@ func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
 
 		require.NotEqual(t, int32(0), criticalCount.Load(), "critical task did not run")
 		require.NotEqual(t, int32(0), normalCount.Load(), "normal task did not run")
-
 	})
 }
 
 func TestScheduler_LowPriorityDeferred(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// 1 slot total, no reserved slots
 		s := engine(t, storage,
@@ -569,10 +578,12 @@ func TestScheduler_LowPriorityDeferred(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -590,6 +601,7 @@ func TestScheduler_LowPriorityDeferred(t *testing.T) {
 			Func: func(_ context.Context) error {
 				normalRuns.Add(1)
 				time.Sleep(300 * time.Millisecond)
+
 				return nil
 			},
 		})
@@ -613,6 +625,7 @@ func TestScheduler_LowPriorityDeferred(t *testing.T) {
 
 		// Check immediately - low task shouldn't have run yet (slot is occupied)
 		time.Sleep(50 * time.Millisecond)
+
 		if lowRuns.Load() > 0 && normalRuns.Load() > 0 {
 			// Both ran quickly - that's fine, means slot was available
 			return
@@ -623,14 +636,12 @@ func TestScheduler_LowPriorityDeferred(t *testing.T) {
 
 		// Low task should eventually run
 		require.NotEqual(t, int32(0), lowRuns.Load(), "low priority task should have run after slot became available")
-
 	})
 }
 
 func TestTaskPriority_String(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		tests := []struct {
 			priority schedtask.Priority
 			expected string
@@ -645,14 +656,12 @@ func TestTaskPriority_String(t *testing.T) {
 		for _, tt := range tests {
 			require.Equal(t, tt.expected, tt.priority.String(), "For priority %d", tt.priority)
 		}
-
 	})
 }
 
 func TestMemoryStorage_Tasks(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		ctx := t.Context()
 
@@ -669,21 +678,21 @@ func TestMemoryStorage_Tasks(t *testing.T) {
 
 		// Test iterator
 		count := 0
+
 		for state, err := range storage.Tasks(ctx) {
 			require.NoError(t, err)
 			require.NotNil(t, state)
+
 			count++
 		}
 
 		require.Equal(t, 3, count)
-
 	})
 }
 
 func TestMemoryStorage_HistoryIter(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		ctx := t.Context()
 		taskID := "test"
@@ -702,7 +711,9 @@ func TestMemoryStorage_HistoryIter(t *testing.T) {
 
 		// Test iterator
 		count := 0
+
 		var prevStartedAt int64
+
 		for h, err := range storage.History(ctx, taskID) {
 			require.NoError(t, err)
 			require.NotNil(t, h)
@@ -710,40 +721,39 @@ func TestMemoryStorage_HistoryIter(t *testing.T) {
 			if count > 0 {
 				require.GreaterOrEqual(t, prevStartedAt, h.StartedAt, "history not sorted descending")
 			}
+
 			prevStartedAt = h.StartedAt
 			count++
 		}
 
 		require.Equal(t, 3, count)
-
 	})
 }
 
 func TestScheduler_IsLeader(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 
 		// Without leader election, always returns true
 		s := engine(t, storage)
 		require.True(t, s.Status().Leader, "expected IsLeader() to return true without leader election configured")
-
 	})
 }
 
 func TestScheduler_UnmanagedTask(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -781,22 +791,22 @@ func TestScheduler_UnmanagedTask(t *testing.T) {
 		// Wait and verify task executes normally (1s schedule + buffer)
 		time.Sleep(1500 * time.Millisecond)
 		require.NotEqual(t, int32(0), execCount.Load(), "unmanaged task should still execute")
-
 	})
 }
 
 func TestScheduler_DisableHistory(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -828,28 +838,30 @@ func TestScheduler_DisableHistory(t *testing.T) {
 
 		// Verify no history was recorded
 		var historyCount int
+
 		for _, err := range s.History(ctx, "no-history-task") {
 			require.NoError(t, err)
+
 			historyCount++
 		}
 
 		require.Equal(t, 0, historyCount, "expected no history for task with DisableHistory")
-
 	})
 }
 
 func TestScheduler_TaskSummaryFlags(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -866,29 +878,32 @@ func TestScheduler_TaskSummaryFlags(t *testing.T) {
 		// Verify flags are present in TaskSummary
 		for summary, err := range s.Tasks(ctx) {
 			require.NoError(t, err)
+
 			if summary.ID == "flagged-task" {
 				require.True(t, summary.DisableHistory, "expected DisableHistory in TaskSummary")
 				require.True(t, summary.Unmanaged, "expected Unmanaged in TaskSummary")
+
 				return
 			}
 		}
-		require.Fail(t, "task not found in Tasks()")
 
+		require.Fail(t, "task not found in Tasks()")
 	})
 }
 
 func TestScheduler_TypedErrors(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -917,22 +932,22 @@ func TestScheduler_TypedErrors(t *testing.T) {
 
 		// Test ErrTaskDisabled when triggering disabled task
 		require.ErrorIs(t, s.Trigger(ctx, "test-task"), horai.ErrTaskDisabled)
-
 	})
 }
 
 func TestScheduler_OneShotTask_ExecutesOnceAndCompletes(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -967,22 +982,22 @@ func TestScheduler_OneShotTask_ExecutesOnceAndCompletes(t *testing.T) {
 		// Wait more and verify no re-execution
 		time.Sleep(300 * time.Millisecond)
 		require.Equal(t, int32(1), execCount.Load(), "task re-executed after completion")
-
 	})
 }
 
 func TestScheduler_OneShotTask_RunAtInPast(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1006,22 +1021,22 @@ func TestScheduler_OneShotTask_RunAtInPast(t *testing.T) {
 
 		state, _ := s.Task(ctx, "oneshot-past")
 		require.Equal(t, horai.TaskStatusCompleted, state.Status)
-
 	})
 }
 
 func TestScheduler_OneShotTask_ValidationErrors(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1042,22 +1057,22 @@ func TestScheduler_OneShotTask_ValidationErrors(t *testing.T) {
 			Func: noop,
 		})
 		require.Error(t, err)
-
 	})
 }
 
 func TestScheduler_OneShotTask_TriggerCompleted(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1077,22 +1092,22 @@ func TestScheduler_OneShotTask_TriggerCompleted(t *testing.T) {
 
 		// Try to trigger completed task
 		require.ErrorIs(t, s.Trigger(ctx, "oneshot-trigger"), horai.ErrTaskCompleted)
-
 	})
 }
 
 func TestScheduler_OneShotTask_ManualTriggerBeforeTime(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1120,22 +1135,22 @@ func TestScheduler_OneShotTask_ManualTriggerBeforeTime(t *testing.T) {
 		// Should be completed
 		state, _ := s.Task(ctx, "oneshot-manual")
 		require.Equal(t, horai.TaskStatusCompleted, state.Status)
-
 	})
 }
 
 func TestScheduler_OneShotTask_PauseResume(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1171,22 +1186,22 @@ func TestScheduler_OneShotTask_PauseResume(t *testing.T) {
 
 		// Pause on completed task should fail
 		require.ErrorIs(t, s.Pause(ctx, "oneshot-pause"), horai.ErrTaskCompleted)
-
 	})
 }
 
 func TestScheduler_OneShotTask_History(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1202,29 +1217,31 @@ func TestScheduler_OneShotTask_History(t *testing.T) {
 
 		// Verify history was recorded
 		var history []*horai.TaskHistory
+
 		for h, err := range s.History(ctx, "oneshot-history") {
 			require.NoError(t, err)
+
 			history = append(history, h)
 		}
 
 		require.Len(t, history, 1)
 		require.True(t, history[0].Success, "expected successful execution in history")
-
 	})
 }
 
 func TestScheduler_OneShotTask_TaskSummary(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1237,21 +1254,22 @@ func TestScheduler_OneShotTask_TaskSummary(t *testing.T) {
 
 		for summary, err := range s.Tasks(ctx) {
 			require.NoError(t, err)
+
 			if summary.ID == "oneshot-summary" {
 				require.True(t, summary.OneShot, "expected OneShot flag in TaskSummary")
 				require.Empty(t, summary.Schedule, "expected empty schedule for one-shot")
+
 				return
 			}
 		}
-		require.Fail(t, "oneshot-summary not found in Tasks()")
 
+		require.Fail(t, "oneshot-summary not found in Tasks()")
 	})
 }
 
 func TestTasksCollect(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		ctx := t.Context()
 
@@ -1269,7 +1287,6 @@ func TestTasksCollect(t *testing.T) {
 		// Test slices.Collect with iterator
 		tasks := slices.Collect(tasksSeqValues(storage.Tasks(ctx)))
 		require.Len(t, tasks, 3)
-
 	})
 }
 
@@ -1277,7 +1294,6 @@ func TestTasksCollect(t *testing.T) {
 func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// Dynamic limit of 2
 		s := engine(t, storage,
@@ -1286,10 +1302,12 @@ func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1307,14 +1325,17 @@ func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
 				RunOnStart: true,
 				Func: func(_ context.Context) error {
 					current := concurrent.Add(1)
+
 					for {
 						observed := maxObserved.Load()
 						if current <= observed || maxObserved.CompareAndSwap(observed, current) {
 							break
 						}
 					}
+
 					time.Sleep(200 * time.Millisecond)
 					concurrent.Add(-1)
+
 					return nil
 				},
 			})
@@ -1326,15 +1347,14 @@ func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
 
 		observed := maxObserved.Load()
 		require.LessOrEqual(t, observed, int32(2), "dynamic concurrent tasks exceeded limit: max observed %d, limit was 2", observed)
-
 	})
 }
 
 func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
+
 		var limit atomic.Int32
 		limit.Store(1)
 
@@ -1344,10 +1364,12 @@ func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1364,14 +1386,17 @@ func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 				RunOnStart: true,
 				Func: func(_ context.Context) error {
 					current := concurrent.Add(1)
+
 					for {
 						observed := maxObserved.Load()
 						if current <= observed || maxObserved.CompareAndSwap(observed, current) {
 							break
 						}
 					}
+
 					time.Sleep(200 * time.Millisecond)
 					concurrent.Add(-1)
+
 					return nil
 				},
 			})
@@ -1380,6 +1405,7 @@ func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 
 		// Phase 1: limit=1, verify max concurrent ≤ 1
 		time.Sleep(500 * time.Millisecond)
+
 		phase1Max := maxObserved.Load()
 		require.LessOrEqual(t, phase1Max, int32(1), "phase 1: expected max 1 concurrent")
 
@@ -1392,14 +1418,12 @@ func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 		require.LessOrEqual(t, phase2Max, int32(4), "phase 2: expected max 4 concurrent")
 		// With limit=4 and 4 tasks, we should see >1 concurrent
 		require.Greater(t, phase2Max, int32(1), "phase 2: expected >1 concurrent after limit increase")
-
 	})
 }
 
 func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// Dynamic limit of 1
 		s := engine(t, storage,
@@ -1409,10 +1433,12 @@ func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1430,6 +1456,7 @@ func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
 			Func: func(_ context.Context) error {
 				normalCount.Add(1)
 				time.Sleep(300 * time.Millisecond)
+
 				return nil
 			},
 		})
@@ -1453,14 +1480,12 @@ func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
 
 		require.NotEqual(t, int32(0), criticalCount.Load(), "critical task did not run in dynamic mode")
 		require.NotEqual(t, int32(0), normalCount.Load(), "normal task did not run in dynamic mode")
-
 	})
 }
 
 func TestScheduler_DynamicLimitFuncPrecedence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		// Both static and dynamic set: dynamic should take precedence
 		s := engine(t, storage,
@@ -1470,23 +1495,23 @@ func TestScheduler_DynamicLimitFuncPrecedence(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
 		// Dynamic takes precedence: available should be 3, not 10
 		require.Equal(t, 3, s.Status().AvailableSlots, "expected 3 available slots (dynamic precedence)")
-
 	})
 }
 
 func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		s := engine(t, storage,
 			scheduler.WithTickInterval(50*time.Millisecond),
@@ -1494,10 +1519,12 @@ func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1511,6 +1538,7 @@ func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
 			Func: func(_ context.Context) error {
 				close(started)
 				<-done
+
 				return nil
 			},
 		})
@@ -1535,14 +1563,12 @@ func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
 
 		// Running count should return to 0
 		require.Equal(t, 0, s.Status().RunningTasks, "expected 0 running tasks after completion")
-
 	})
 }
 
 func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 		ctx := t.Context()
 
@@ -1565,10 +1591,12 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 			scheduler.WithTickInterval(50*time.Millisecond),
 			scheduler.WithStaleTaskTimeout(30*time.Minute),
 		)
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1580,6 +1608,7 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 
 		// Register the task function and verify it eventually executes
 		var execCount atomic.Int32
+
 		err = s.Register(ctx, schedtask.Config{
 			ID:       "stale-startup",
 			Schedule: "@every 1s",
@@ -1593,14 +1622,12 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 		time.Sleep(2 * time.Second)
 
 		require.NotEqual(t, int32(0), execCount.Load(), "recovered task should have executed after registration")
-
 	})
 }
 
 func TestScheduler_RecoverStaleTasksPeriodic(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 
 		// Use a very short stale timeout for testing
@@ -1610,10 +1637,12 @@ func TestScheduler_RecoverStaleTasksPeriodic(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1644,14 +1673,12 @@ func TestScheduler_RecoverStaleTasksPeriodic(t *testing.T) {
 		state, err = s.Task(ctx, "stale-periodic")
 		require.NoError(t, err)
 		require.NotEqual(t, horai.TaskStatusRunning, state.Status, "expected stale task to be recovered from Running status")
-
 	})
 }
 
 func TestScheduler_RunningTaskNotRecoveredPrematurely(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-
 		storage := mustNewMemory(t, 100)
 
 		s := engine(t, storage,
@@ -1660,10 +1687,12 @@ func TestScheduler_RunningTaskNotRecoveredPrematurely(t *testing.T) {
 		)
 
 		ctx := t.Context()
+
 		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+
 			_ = s.Stop(stopCtx)
 		}()
 
@@ -1677,6 +1706,7 @@ func TestScheduler_RunningTaskNotRecoveredPrematurely(t *testing.T) {
 			Func: func(_ context.Context) error {
 				close(started)
 				<-done
+
 				return nil
 			},
 		})
@@ -1706,7 +1736,6 @@ func TestScheduler_RunningTaskNotRecoveredPrematurely(t *testing.T) {
 
 		state, _ = s.Task(ctx, "long-running")
 		require.Equal(t, horai.TaskStatusActive, state.Status, "expected task to return to Active after completion")
-
 	})
 }
 
@@ -1722,29 +1751,10 @@ func tasksSeqValues(seq iter.Seq2[*horai.TaskState, error]) iter.Seq[*horai.Task
 			if err != nil {
 				return
 			}
+
 			if !yield(state) {
 				return
 			}
 		}
 	}
-}
-
-// --- Pagination tests ---
-
-func registerDummyTasks(t *testing.T, s *scheduler.Scheduler, n int) {
-	t.Helper()
-	ctx := t.Context()
-	for i := range n {
-		id := generatePaddedID(i)
-		err := s.Register(ctx, schedtask.Config{
-			ID:       id,
-			Schedule: "@every 1h",
-			Func:     func(_ context.Context) error { return nil },
-		})
-		require.NoError(t, err, "register task %q", id)
-	}
-}
-
-func generatePaddedID(n int) string {
-	return "task-" + string(rune('a'+n/26)) + string(rune('a'+n%26))
 }

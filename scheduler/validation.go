@@ -33,5 +33,6 @@ func validateOptions(o *options) error {
 			return fmt.Errorf("%s: %w", c.name, coreerrs.ErrInvalidArgument)
 		}
 	}
+
 	return nil
 }

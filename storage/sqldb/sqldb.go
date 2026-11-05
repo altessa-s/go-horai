@@ -80,24 +80,29 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	if db == nil {
 		return nil, errors.New("sqldb: database is required")
 	}
+
 	dl, err := dialectFor(d)
 	if err != nil {
 		return nil, err
 	}
+
 	o := newOptions(opts...)
 
 	s := &Store{db: db, dialect: dl}
 	if s.tasksTable, err = dl.Table(o.tasksTable); err != nil {
 		return nil, fmt.Errorf("tasksTable: %w: %v", ErrInvalidTableName, err)
 	}
+
 	if s.historyTable, err = dl.Table(o.historyTable); err != nil {
 		return nil, fmt.Errorf("historyTable: %w: %v", ErrInvalidTableName, err)
 	}
+
 	s.tasksName = sqldialect.Unqualified(o.tasksTable)
 	s.tasksSchema = sqldialect.Qualifier(o.tasksTable)
 	s.historyName = sqldialect.Unqualified(o.historyTable)
 	s.stmts = s.buildStatements()
 	s.taskFilter, s.historyFilter = s.filterSources()
+
 	return s, nil
 }
 
@@ -112,11 +117,14 @@ func (s *Store) buildStatements() statements {
 		for i, c := range mutable {
 			set[i] = c + " = " + value(c)
 		}
+
 		return strings.Join(set, ", ")
 	}
 
 	insert := "INSERT INTO " + t + " (" + taskColumns + ") VALUES (" + values + ")"
+
 	var create string
+
 	switch s.dialect.name {
 	case Postgres:
 		create = insert + " ON CONFLICT (id) DO NOTHING"
@@ -127,6 +135,7 @@ func (s *Store) buildStatements() statements {
 		// checking whether the row exists.
 		create = insert
 	}
+
 	replaceSet := assign(func(string) string { return "?" })
 
 	// Status constants are inlined in FinishRun: a bare parameter as a CASE
@@ -145,6 +154,7 @@ func (s *Store) buildStatements() statements {
 	// executed: a one-shot task still registered for the occurrence the run
 	// executed (re-registration may have moved it to another run_at meanwhile).
 	const executed = "(one_shot AND run_at = ?)"
+
 	return statements{
 		getTask:    b("SELECT "+taskColumns+" FROM "+t+" WHERE id = ?", 1),
 		createTask: b(create, 1),
@@ -185,9 +195,11 @@ func (s *Store) GetTask(ctx context.Context, id string) (*horai.TaskState, error
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // nil state with nil error indicates "not found"
 	}
+
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "get scheduler task")
 	}
+
 	return state, nil
 }
 
@@ -199,10 +211,12 @@ func (s *Store) CreateTask(ctx context.Context, state *horai.TaskState) (bool, e
 	if err := checkTask(state); err != nil {
 		return false, err
 	}
+
 	args, err := taskArgs(state)
 	if err != nil {
 		return false, err
 	}
+
 	res, err := s.db.ExecContext(ctx, s.stmts.createTask, append([]any{state.ID}, args...)...)
 	if err != nil {
 		if s.dialect.name == MySQL {
@@ -210,12 +224,15 @@ func (s *Store) CreateTask(ctx context.Context, state *horai.TaskState) (bool, e
 				return false, nil
 			}
 		}
+
 		return false, coreerrs.WrapOperation(err, "create scheduler task")
 	}
+
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "create scheduler task")
 	}
+
 	return n == 1, nil
 }
 
@@ -228,11 +245,14 @@ func (s *Store) ClaimRun(ctx context.Context, id string, claim horai.RunClaim) (
 	if err := claim.Validate(); err != nil {
 		return false, err
 	}
+
 	if err := checkLength(MaxIDLength, claim.RunID); err != nil {
 		return false, err
 	}
+
 	args := []any{int32(horai.TaskStatusRunning), claim.StartedAt, claim.RunID, claim.LeaseUntil, claim.RunID, claim.StartedAt,
 		id, int32(horai.TaskStatusActive), claim.NextRunAt, claim.RunAt}
+
 	return s.affected(ctx, "claim scheduler task", s.stmts.claim, args...)
 }
 
@@ -242,6 +262,7 @@ func (s *Store) RenewRun(ctx context.Context, id, runID string, leaseUntil int64
 	if runID == "" {
 		return false, nil
 	}
+
 	return s.affected(ctx, "renew scheduler run", s.stmts.renew, leaseUntil, runID, id, runID)
 }
 
@@ -252,6 +273,7 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 	if runID == "" {
 		return false, nil
 	}
+
 	return s.affected(ctx, "finish scheduler run", s.stmts.finish,
 		result.RunAt, result.Schedule, result.NextRunAt,
 		result.RunAt, result.Schedule, result.NextRunAt,
@@ -269,10 +291,12 @@ func (s *Store) affected(ctx context.Context, op, query string, args ...any) (bo
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, op)
 	}
+
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, op)
 	}
+
 	return n == 1, nil
 }
 
@@ -284,12 +308,15 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		return coreerrs.WrapOperation(err, "delete scheduler task")
 	}
 	defer func() { _ = tx.Rollback() }()
+
 	if _, err := tx.ExecContext(ctx, s.stmts.deleteHistory, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete scheduler task history")
 	}
+
 	if _, err := tx.ExecContext(ctx, s.stmts.deleteTask, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete scheduler task")
 	}
+
 	return coreerrs.WrapOperation(tx.Commit(), "delete scheduler task")
 }
 
@@ -310,10 +337,12 @@ func (s *Store) AddHistory(ctx context.Context, h *horai.TaskHistory) error {
 	if err := checkLength(MaxIDLength, h.ID, h.TaskID, h.RunID); err != nil {
 		return err
 	}
+
 	if _, err := s.db.ExecContext(ctx, s.stmts.addHistory,
 		h.ID, h.TaskID, h.RunID, h.Error, h.StartedAt, h.EndedAt, h.DurationMs, h.Success); err != nil {
 		return coreerrs.WrapOperation(err, "add scheduler history")
 	}
+
 	return nil
 }
 
@@ -329,6 +358,7 @@ func (s *Store) CleanupHistory(ctx context.Context, endedBefore int64) error {
 	if _, err := s.db.ExecContext(ctx, s.stmts.cleanupHistory, endedBefore); err != nil {
 		return coreerrs.WrapOperation(err, "clean up scheduler history")
 	}
+
 	return nil
 }
 
@@ -339,18 +369,24 @@ func (s *Store) ListTasks(ctx context.Context, pg horai.TaskPage, f query.Expr) 
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	from, where, args, err := s.filterClause(f, query.TaskFields(), s.tasksTable, s.taskFilter)
 	if err != nil {
 		return nil, err
 	}
+
 	next := len(args) + 1 // the filter owns placeholders 1..len(args)
+
 	own := ""
 	if pg.AfterID != "" {
 		own = " AND id > ?"
+
 		args = append(args, pg.AfterID)
 	}
+
 	query := "SELECT " + taskColumns + " FROM " + from + " WHERE " + where +
 		s.dialect.Bind(own+" ORDER BY id LIMIT ?", next)
+
 	return collect(queryIter(ctx, s.db, query, append(args, pg.Limit+1), scanTask))
 }
 
@@ -361,19 +397,26 @@ func (s *Store) ListHistory(ctx context.Context, taskID string, pg horai.History
 	if err := horai.ValidatePageLimit(pg.Limit); err != nil {
 		return nil, err
 	}
+
 	from, where, args, err := s.filterClause(f, query.HistoryFields(), s.historyTable, s.historyFilter)
 	if err != nil {
 		return nil, err
 	}
+
 	next := len(args) + 1 // the filter owns placeholders 1..len(args)
 	own := " AND task_id = ?"
+
 	args = append(args, taskID)
+
 	if pg.AfterID != "" {
 		own += " AND (started_at < ? OR (started_at = ? AND id < ?))"
+
 		args = append(args, pg.AfterStartedAt, pg.AfterStartedAt, pg.AfterID)
 	}
+
 	query := "SELECT " + historyColumns + " FROM " + from + " WHERE " + where +
 		s.dialect.Bind(own+" ORDER BY started_at DESC, id DESC LIMIT ?", next)
+
 	return collect(queryIter(ctx, s.db, query, append(args, pg.Limit+1), scanHistory))
 }
 
@@ -396,6 +439,7 @@ func checkTask(state *horai.TaskState) error {
 	if err := checkLength(MaxIDLength, state.ID, state.LastRunID, state.RunLeaseID); err != nil {
 		return err
 	}
+
 	return checkLength(MaxScheduleLength, state.Schedule)
 }
 
@@ -407,18 +451,21 @@ func checkLength(limit int, values ...string) error {
 			return fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, limit)
 		}
 	}
+
 	return nil
 }
 
 // taskArgs returns the mutable column values of state in taskColumns order.
 func taskArgs(state *horai.TaskState) ([]any, error) {
 	meta := []byte("{}")
+
 	if len(state.Meta) > 0 {
 		var err error
 		if meta, err = json.Marshal(state.Meta); err != nil {
 			return nil, coreerrs.WrapOperation(err, "encode scheduler task meta")
 		}
 	}
+
 	return []any{
 		state.Description, int32(state.Status), int32(state.Priority), state.Schedule,
 		state.LastRunAt, state.NextRunAt, state.LastRunID, state.RunStartedAt,
@@ -444,13 +491,16 @@ func scanTask(r rowScanner) (*horai.TaskState, error) {
 		&t.Unmanaged, &t.OneShot, &meta, &t.CreatedAt, &t.UpdatedAt, &t.Revision); err != nil {
 		return nil, err
 	}
+
 	t.Status = horai.TaskStatus(status)
+
 	t.Priority = task.Priority(priority)
 	if meta != "" && meta != "{}" {
 		if err := json.Unmarshal([]byte(meta), &t.Meta); err != nil {
 			return nil, coreerrs.WrapOperation(err, "decode scheduler task meta")
 		}
 	}
+
 	return &t, nil
 }
 
@@ -459,6 +509,7 @@ func scanHistory(r rowScanner) (*horai.TaskHistory, error) {
 	if err := r.Scan(&h.ID, &h.TaskID, &h.RunID, &h.Error, &h.StartedAt, &h.EndedAt, &h.DurationMs, &h.Success); err != nil {
 		return nil, err
 	}
+
 	return &h, nil
 }
 
@@ -473,16 +524,19 @@ func queryIter[T any](ctx context.Context, db *sql.DB, query string, args []any,
 			return
 		}
 		defer func() { _ = rows.Close() }()
+
 		for rows.Next() {
 			v, err := scan(rows)
 			if err != nil {
 				yield(nil, coreerrs.WrapOperation(err, "scan scheduler row"))
 				return
 			}
+
 			if !yield(v, nil) {
 				return
 			}
 		}
+
 		if err := rows.Err(); err != nil {
 			yield(nil, coreerrs.WrapOperation(err, "read scheduler rows"))
 		}
@@ -491,12 +545,15 @@ func queryIter[T any](ctx context.Context, db *sql.DB, query string, args []any,
 
 func collect[T any](seq iter.Seq2[*T, error]) ([]*T, error) {
 	var out []*T
+
 	for v, err := range seq {
 		if err != nil {
 			return nil, err
 		}
+
 		out = append(out, v)
 	}
+
 	return out, nil
 }
 
@@ -517,11 +574,14 @@ func (s *Store) ReplaceTaskIf(ctx context.Context, state *horai.TaskState, expec
 	if err := checkTask(state); err != nil {
 		return false, err
 	}
+
 	args, err := taskArgs(state)
 	if err != nil {
 		return false, err
 	}
+
 	args = append(args, expect.Revision+1, state.ID,
 		int32(expect.Status), expect.NextRunAt, expect.LastRunID, expect.RunStartedAt, expect.Revision)
+
 	return s.affected(ctx, "replace scheduler task", s.stmts.replaceTask, args...)
 }

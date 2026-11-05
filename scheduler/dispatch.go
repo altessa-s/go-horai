@@ -36,6 +36,7 @@ func (s *Scheduler) loadTasks(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
 		s.logger.DebugContext(ctx, "found persisted task state",
 			slog.String("task_id", state.ID),
 			slog.String("status", state.Status.String()),
@@ -54,6 +55,7 @@ func (s *Scheduler) run() {
 	defer cleanupTicker.Stop()
 
 	staleRecoveryInterval := min(s.opts.staleTaskTimeout, maxStaleRecoveryInterval)
+
 	staleRecoveryTicker := time.NewTicker(staleRecoveryInterval)
 	defer staleRecoveryTicker.Stop()
 
@@ -107,6 +109,7 @@ func (s *Scheduler) tick() {
 	if err != nil {
 		s.logger.ErrorContext(s.stopCtx, "failed to iterate due task states",
 			slog.Any("error", err))
+
 		return
 	}
 
@@ -177,12 +180,15 @@ func (s *Scheduler) fetchDueStates(now int64, capacity int) ([]*horai.TaskState,
 	defer cancel()
 
 	states := make([]*horai.TaskState, 0, capacity)
+
 	for state, err := range s.storage.DueTasks(opCtx, now) {
 		if err != nil {
 			return nil, err
 		}
+
 		states = append(states, state)
 	}
+
 	return states, nil
 }
 
@@ -210,6 +216,7 @@ func (s *Scheduler) applySkip(now time.Time, id string, due horai.TaskFence) {
 	} else {
 		s.advanceSchedule(ctx, now, freshState)
 	}
+
 	freshState.UpdatedAt = now.Unix()
 
 	replaced, err := s.storage.ReplaceTaskIf(ctx, freshState, due)
@@ -218,10 +225,12 @@ func (s *Scheduler) applySkip(now time.Time, id string, due horai.TaskFence) {
 			slog.String("task_id", id),
 			slog.Any("error", err))
 	}
+
 	if !replaced {
 		// A concurrent claim, pause or schedule change won; it owns the state.
 		return
 	}
+
 	s.metrics.TaskSkipped(id)
 	s.logger.InfoContext(ctx, "task run skipped", slog.String("task_id", id))
 }

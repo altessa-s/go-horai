@@ -2,5 +2,6 @@
 // Use of this source code is governed by the MIT license that can be found in
 // the LICENSE file.
 
-// Package horaitest supplies controlled clocks, metrics and fault injection.
+// Package horaitest supplies controlled clocks, metrics and fault injection
+// for scheduler tests.
 package horaitest

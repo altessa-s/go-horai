@@ -10,19 +10,21 @@ README                      # Root README
 docs                        # Documentation
 
 # Packages
-horai                       # Root package: task state, runs, errors and storage ports
-task                        # Registration contract: task configuration and priorities
-schedule                    # Schedule parsing and next-run computation
-query                       # List-filter expressions over task and history fields
-scheduler                   # Engine: dispatch, runs, leases, recovery, management
-storage/memory              # In-memory store
-storage/sqldb               # PostgreSQL and MySQL/MariaDB store over database/sql
-storage/storagetest         # Store contract suite
-storage/redis               # Redis store, nested module
-storage/mongo               # MongoDB store, nested module
-storage/clickhouse          # ClickHouse history store, nested module
-horaitest                   # Test doubles for consumers
-integration/docker          # Docker-backed integration tests, nested module
+horai                            # Root package: task state, runs, errors and storage ports
+task                             # Registration contract: task configuration and priorities
+schedule                         # Schedule parsing and next-run computation
+query                            # List-filter expressions over task and history fields
+scheduler                        # Engine: dispatch, runs, leases, recovery, management
+storage/memory                   # In-memory store
+storage/sqldb                    # PostgreSQL and MySQL/MariaDB store over database/sql
+storage/sqldb/internal/dialect   # SQL text helpers shared by the database/sql dialects
+storage/storagetest              # Store contract suite
+storage/redis                    # Redis store, nested module
+storage/mongo                    # MongoDB store, nested module
+storage/clickhouse               # ClickHouse history store, nested module
+horaitest                        # Test doubles for consumers
+internal/testhelpers             # Isolated SQL driver fixtures for tests
+integration/docker               # Docker-backed integration tests, nested module
 
 # Tooling
 devtools                    # Development tool dependencies

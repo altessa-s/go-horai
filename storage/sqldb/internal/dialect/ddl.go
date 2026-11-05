@@ -31,21 +31,26 @@ func ExecPostgresDDL(ctx context.Context, db *sql.DB, names []string, stmts []st
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+
 	keys := make([]int64, len(names))
 	for i, name := range names {
 		keys[i] = advisoryKey(name)
 	}
+
 	slices.Sort(keys)
+
 	for _, key := range slices.Compact(keys) {
 		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", key); err != nil {
 			return err
 		}
 	}
+
 	for _, stmt := range stmts {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
+
 	return tx.Commit()
 }
 
@@ -53,5 +58,6 @@ func ExecPostgresDDL(ctx context.Context, db *sql.DB, names []string, stmts []st
 func advisoryKey(name string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(lockNamespace + name))
+
 	return int64(h.Sum64()) //nolint:gosec // the key is a hash; wrapping into the signed range is intended
 }

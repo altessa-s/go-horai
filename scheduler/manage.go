@@ -26,6 +26,7 @@ func (s *Scheduler) updateTask(ctx context.Context, id string, mutate func(*hora
 		if err != nil {
 			return err
 		}
+
 		if state == nil {
 			return horai.ErrTaskNotFound
 		}
@@ -39,13 +40,16 @@ func (s *Scheduler) updateTask(ctx context.Context, id string, mutate func(*hora
 		if err != nil {
 			return err
 		}
+
 		if replaced {
 			return nil
 		}
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 	}
+
 	return horai.ErrConcurrentUpdate
 }
 
@@ -91,6 +95,7 @@ func (s *Scheduler) Resume(ctx context.Context, id string) error {
 		}
 
 		now := s.opts.clock.Now()
+
 		state.Status = horai.TaskStatusActive
 		if state.OneShot {
 			// One-shot: keep existing NextRunAt or set to now if already past
@@ -100,6 +105,7 @@ func (s *Scheduler) Resume(ctx context.Context, id string) error {
 		} else {
 			s.advanceSchedule(ctx, now, state)
 		}
+
 		state.UpdatedAt = now.Unix()
 
 		return nil
@@ -151,6 +157,7 @@ func (s *Scheduler) Enable(ctx context.Context, id string) error {
 		}
 
 		now := s.opts.clock.Now()
+
 		state.Status = horai.TaskStatusActive
 		if state.OneShot {
 			// One-shot: keep existing NextRunAt or set to now if already past
@@ -160,6 +167,7 @@ func (s *Scheduler) Enable(ctx context.Context, id string) error {
 		} else {
 			s.advanceSchedule(ctx, now, state)
 		}
+
 		state.UpdatedAt = now.Unix()
 
 		return nil
@@ -199,6 +207,7 @@ func (s *Scheduler) Tasks(ctx context.Context) iter.Seq2[*horai.TaskSummary, err
 				yield(nil, err)
 				return
 			}
+
 			summary := state.TaskSummary
 			if !yield(&summary, nil) {
 				return
@@ -231,6 +240,7 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	if !s.isRunning.Load() {
 		return horai.ErrNotReady
 	}
+
 	if !s.isReady() {
 		return horai.ErrNotReady
 	}
@@ -245,6 +255,7 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 
 	opCtx, cancel := s.storageCtx(ctx)
 	defer cancel()
+
 	state, err := s.storage.GetTask(opCtx, id)
 	if err != nil {
 		return err
@@ -271,29 +282,38 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	// Dynamic admission invokes the consumer's limit callback. Keep it outside
 	// lifecycle so it can inspect or stop the scheduler without deadlocking.
 	var release func()
+
 	if _, dynamic := s.slots.(*dynamicSlots); dynamic {
 		var admitted bool
+
 		release, admitted = s.slots.acquire(ctx, task.config.Priority, true)
 		if !admitted {
 			task.release()
 			return horai.ErrConcurrencyLimit
 		}
 	}
+
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
+
 	if s.stopping || !s.isRunning.Load() {
 		if release != nil {
 			release()
 		}
+
 		task.release()
+
 		return horai.ErrNotReady
 	}
+
 	if release != nil {
 		s.wg.Go(func() { defer task.release(); defer release(); s.executeTask(s.stopCtx, task, state) })
 		return nil
 	}
+
 	s.wg.Go(func() {
 		defer task.release()
+
 		s.runTaskWithSemaphore(task, state)
 	})
 
@@ -308,5 +328,6 @@ func startedWithin(st *horai.TaskState, now time.Time, grace time.Duration) bool
 	if grace <= 0 || last == 0 {
 		return false
 	}
+
 	return now.Sub(time.Unix(last, 0)) < grace
 }

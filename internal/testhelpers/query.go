@@ -19,11 +19,15 @@ func QueryTree(data []byte, fields []query.Field) query.Expr {
 		if len(data) == 0 {
 			return 0
 		}
+
 		b := data[offset%len(data)]
 		offset++
+
 		return b
 	}
+
 	var build func(int) query.Expr
+
 	build = func(depth int) query.Expr {
 		kind := next() % 5
 		if depth < 3 {
@@ -36,9 +40,12 @@ func QueryTree(data []byte, fields []query.Field) query.Expr {
 				return query.Not{Expr: build(depth + 1)}
 			}
 		}
+
 		field := fields[int(next())%len(fields)]
 		ops := []query.Op{query.Eq, query.Ne, query.Lt, query.Le, query.Gt, query.Ge, query.In}
+
 		var value any
+
 		switch field {
 		case "id", "description", "schedule", "taskId", "runId", "error":
 			ops = append(ops, query.Prefix, query.Contains)
@@ -49,6 +56,7 @@ func QueryTree(data []byte, fields []query.Field) query.Expr {
 		default:
 			value = int64(int8(next()))
 		}
+
 		op := ops[int(next())%len(ops)]
 		if op == query.In {
 			switch v := value.(type) {
@@ -60,7 +68,9 @@ func QueryTree(data []byte, fields []query.Field) query.Expr {
 				value = []bool{v, !v}
 			}
 		}
+
 		return query.Cmp{Field: field, Op: op, Value: value}
 	}
+
 	return build(0)
 }

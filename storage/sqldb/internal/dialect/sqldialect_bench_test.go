@@ -15,7 +15,9 @@ import (
 // runs on every filtered page query.
 func BenchmarkBind(b *testing.B) {
 	q := " AND task_id = ? AND (started_at < ? OR (started_at = ? AND id < ?)) ORDER BY started_at DESC, id DESC LIMIT ?"
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		_ = sqldialect.Postgres().Bind(q, 7)
 	}
@@ -24,7 +26,9 @@ func BenchmarkBind(b *testing.B) {
 // BenchmarkIndexName measures index naming on the hashed path.
 func BenchmarkIndexName(b *testing.B) {
 	table := strings.Repeat("t", 70)
+
 	b.ReportAllocs()
+
 	for b.Loop() {
 		_ = sqldialect.MySQL().IndexName(table, "task")
 	}
@@ -34,6 +38,7 @@ func BenchmarkIndexName(b *testing.B) {
 // translators run once per selected or sorted column.
 func BenchmarkTable(b *testing.B) {
 	b.ReportAllocs()
+
 	for b.Loop() {
 		_, _ = sqldialect.Postgres().Table("app.created_at")
 	}

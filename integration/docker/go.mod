@@ -10,7 +10,7 @@ require (
 	github.com/altessa-s/go-horai/storage/clickhouse v0.0.0
 	github.com/altessa-s/go-horai/storage/mongo v0.0.0
 	github.com/altessa-s/go-horai/storage/redis v0.0.0
-	github.com/altessa-s/go-tlsutils v0.2.1
+	github.com/altessa-s/go-tlsutils v0.2.2
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/redis/go-redis/v9 v9.23.0
@@ -25,7 +25,7 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20261006220739-8c912ac31dd4 // indirect
 	github.com/ClickHouse/ch-go v0.74.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/altessa-s/go-atlas-core v0.3.1 // indirect
+	github.com/altessa-s/go-atlas-core v0.3.3 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

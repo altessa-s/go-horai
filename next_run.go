@@ -13,5 +13,6 @@ func (s *TaskState) NextRun() time.Time {
 	if s == nil || s.Status != TaskStatusActive || s.NextRunAt <= 0 {
 		return time.Time{}
 	}
+
 	return time.Unix(s.NextRunAt, 0).UTC()
 }

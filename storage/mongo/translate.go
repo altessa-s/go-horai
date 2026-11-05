@@ -40,6 +40,7 @@ func column(f query.Field) (string, error) {
 	case "description", "schedule", "status", "priority", "failures", "unmanaged", "success", "error":
 		return string(f), nil
 	}
+
 	return "", fmt.Errorf("%w: field %q", query.ErrInvalid, f)
 }
 
@@ -47,7 +48,9 @@ func translate(e query.Expr, fields []query.Field) (bson.M, error) {
 	if err := query.Validate(e, fields); err != nil {
 		return nil, err
 	}
+
 	var walk func(query.Expr) any
+
 	walk = func(e query.Expr) any {
 		switch v := e.(type) {
 		case nil:
@@ -57,36 +60,46 @@ func translate(e query.Expr, fields []query.Field) (bson.M, error) {
 			for _, c := range v {
 				a = append(a, walk(c))
 			}
+
 			return bson.M{opAnd: a}
 		case query.Or:
 			a := bson.A{}
 			for _, c := range v {
 				a = append(a, walk(c))
 			}
+
 			return bson.M{"$or": a}
 		case query.Not:
 			return bson.M{"$not": bson.A{walk(v.Expr)}}
 		case query.Cmp:
 			name, _ := column(v.Field) // Validate rejects fields outside the closed mapping.
 			col := "$" + name
+
 			if v.Op == query.Prefix || v.Op == query.Contains {
 				value, _ := v.Value.(string) // Validated above.
+
 				pattern := regexp.QuoteMeta(value)
 				if v.Op == query.Prefix {
 					pattern = "^" + pattern
 				}
+
 				return bson.M{"$regexMatch": bson.M{"input": col, "regex": bson.M{opLiteral: pattern}}}
 			}
+
 			op := string(v.Op)
 			if v.Op == query.Le {
 				op = "lte"
 			}
+
 			if v.Op == query.Ge {
 				op = "gte"
 			}
+
 			return bson.M{"$" + op: bson.A{col, bson.M{opLiteral: v.Value}}}
 		}
+
 		panic("validated expression")
 	}
+
 	return bson.M{"$expr": walk(e)}, nil
 }
