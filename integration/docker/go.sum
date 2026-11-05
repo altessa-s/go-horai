@@ -12,10 +12,10 @@ github.com/ClickHouse/clickhouse-go/v2 v2.50.0 h1:cX9TLBOdNVbecglF/c8KkbtZQpov84
 github.com/ClickHouse/clickhouse-go/v2 v2.50.0/go.mod h1:2mzC9OqL8g+vZgmdOoRQ9iEp2BxIsV5hKA1m7DBVU+M=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/altessa-s/go-atlas-core v0.3.1 h1:/xSTFoK6pka/x+bJ1mqHHkEFOOhpRN/2gOZY3mZYUIQ=
-github.com/altessa-s/go-atlas-core v0.3.1/go.mod h1:xOKuQewGd1wO3llziO2K6CUUtr3FHGnJHUMRUIOCaHw=
-github.com/altessa-s/go-tlsutils v0.2.1 h1:GFAWdTMn5p7zM8JpouFJ7S7MdY74W6pwhUZ83FzqZ2M=
-github.com/altessa-s/go-tlsutils v0.2.1/go.mod h1:VJkSwH+3/GjVXLUhLrMsdIK6U/GOMVf3JxBRiF/4Svw=
+github.com/altessa-s/go-atlas-core v0.3.3 h1:reB/LuzTRNRgq/yfIGTjkJ5xAgJHn38AMuafRAdbsco=
+github.com/altessa-s/go-atlas-core v0.3.3/go.mod h1:xOKuQewGd1wO3llziO2K6CUUtr3FHGnJHUMRUIOCaHw=
+github.com/altessa-s/go-tlsutils v0.2.2 h1:tzQSD24LDcLBNqmJexZ6dFdf34nGJ+emeGakAWdLWts=
+github.com/altessa-s/go-tlsutils v0.2.2/go.mod h1:aCEZkB0EoM+46l5Y9o3MK8QObrmEKr559C9z0EBoVUg=
 github.com/andybalholm/brotli v1.2.6 h1:ftYnfj6usCp+UGV5kSJ3+chpMQgU+gJf/AxsUQ52REI=
 github.com/andybalholm/brotli v1.2.6/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
