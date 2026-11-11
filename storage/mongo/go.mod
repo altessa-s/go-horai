@@ -2,7 +2,7 @@ module github.com/altessa-s/go-horai/storage/mongo
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/altessa-s/go-horai v0.1.2
