@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
-	github.com/altessa-s/go-atlas-core v0.3.3
+	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/altessa-s/go-horai v0.1.2
 	github.com/stretchr/testify v1.12.1
 )
