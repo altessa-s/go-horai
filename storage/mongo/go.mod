@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-horai v0.1.2
+	github.com/altessa-s/go-horai v0.1.3
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 )
