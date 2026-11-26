@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
-	github.com/altessa-s/go-horai v0.1.3
+	github.com/altessa-s/go-horai v0.2.0
 	github.com/altessa-s/go-horai/storage/clickhouse v0.0.0
 	github.com/altessa-s/go-horai/storage/mongo v0.0.0
 	github.com/altessa-s/go-horai/storage/redis v0.0.0

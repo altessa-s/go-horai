@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/altessa-s/go-atlas-core v0.4.0
-	github.com/altessa-s/go-horai v0.1.3
+	github.com/altessa-s/go-horai v0.2.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
 )
