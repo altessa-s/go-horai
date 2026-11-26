@@ -87,7 +87,7 @@ func TestManagementGivesUpAfterMaxAttempts(t *testing.T) {
 	})
 }
 
-func TestBindKeepsInFlightRunFinishable(t *testing.T) {
+func TestRegisterKeepsInFlightRunFinishable(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem, err := memory.New(memory.WithMaxHistoryPerTask(10))
@@ -99,7 +99,7 @@ func TestBindKeepsInFlightRunFinishable(t *testing.T) {
 		}))
 		s := engine(t, mem)
 
-		require.NoError(t, s.Bind(t.Context(), schedtask.Config{
+		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "task", Schedule: "@every 1h", Func: func(context.Context) error { return nil },
 		}))
 

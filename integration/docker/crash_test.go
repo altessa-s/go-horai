@@ -139,7 +139,7 @@ func crashRecovery(t *testing.T, kind, addr string) {
 	cfg := task.Config{ID: "crash", RunAt: time.Unix(state.RunAt, 0), Func: func(context.Context) error { calls.Add(1); return nil }}
 	survivor, err := scheduler.New(st, scheduler.WithInstanceID("survivor"), scheduler.WithTickInterval(100*time.Millisecond), scheduler.WithStaleTaskTimeout(time.Second))
 	require.NoError(t, err)
-	require.NoError(t, survivor.Bind(t.Context(), cfg))
+	require.NoError(t, survivor.Register(t.Context(), cfg))
 	require.NoError(t, survivor.Pause(t.Context(), "crash"))
 	require.NoError(t, cmd.Process.Kill())
 	require.Error(t, cmd.Wait())
@@ -162,7 +162,7 @@ func crashRecovery(t *testing.T, kind, addr string) {
 
 	restarted, err := scheduler.New(st, scheduler.WithTickInterval(100*time.Millisecond))
 	require.NoError(t, err)
-	require.NoError(t, restarted.Bind(t.Context(), cfg))
+	require.NoError(t, restarted.Register(t.Context(), cfg))
 	require.NoError(t, restarted.Start(t.Context()))
 	time.Sleep(time.Second)
 	require.NoError(t, restarted.Stop(t.Context()))

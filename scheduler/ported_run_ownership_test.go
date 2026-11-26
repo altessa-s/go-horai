@@ -22,27 +22,41 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// createdAndClaimedElsewhere inserts and claims the first occurrence just
-// before the scheduler's insert reaches the store.
+// createdAndClaimedElsewhere reports the task as absent on the first read and,
+// in that same window, lets another instance create the task and claim its
+// first occurrence — the interleaving of two instances registering one new
+// task at once.
 type createdAndClaimedElsewhere struct {
 	*memory.Store
+	once sync.Once
 }
 
-func (s *createdAndClaimedElsewhere) CreateTask(ctx context.Context, state *horai.TaskState) (bool, error) {
-	_, err := s.Store.CreateTask(ctx, &horai.TaskState{
-		ID: state.ID, Status: horai.TaskStatusActive, Schedule: "@every 1h", NextRunAt: 100,
+func (s *createdAndClaimedElsewhere) GetTask(ctx context.Context, id string) (*horai.TaskState, error) {
+	var (
+		absent bool
+		err    error
+	)
+
+	s.once.Do(func() {
+		absent = true
+
+		if err = seedState(s.Store, ctx, &horai.TaskState{
+			ID: id, Status: horai.TaskStatusActive, Schedule: "@every 1h", NextRunAt: 100}); err != nil {
+			return
+		}
+
+		_, err = s.Store.ClaimRun(ctx, id, horai.RunClaim{NextRunAt: 100, StartedAt: time.Now().Unix(), RunID: "other-instance/run"})
 	})
+
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
-	if _, err := s.Store.ClaimRun(ctx, state.ID, horai.RunClaim{
-		NextRunAt: 100, StartedAt: time.Now().Unix(), RunID: "other-instance/run",
-	}); err != nil {
-		return false, err
+	if absent {
+		return nil, nil //nolint:nilnil // reproduces the "not found" read that lost the race
 	}
 
-	return s.Store.CreateTask(ctx, state)
+	return s.Store.GetTask(ctx, id)
 }
 
 func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
@@ -51,9 +65,9 @@ func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
 		mem := mustNewMemory(t, 10)
 		s := engine(t, &createdAndClaimedElsewhere{Store: mem})
 
-		require.ErrorIs(t, s.Register(t.Context(), schedtask.Config{
+		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "task", Schedule: "@every 1h", RunOnStart: true, Func: func(context.Context) error { return nil },
-		}), horai.ErrTaskAlreadyRegistered)
+		}))
 
 		got, err := mem.GetTask(t.Context(), "task")
 		require.NoError(t, err)
@@ -211,14 +225,14 @@ func TestRecoveryPreservesManagementStatus(t *testing.T) {
 	})
 }
 
-func TestBindPreservesRunLease(t *testing.T) {
+func TestRegisterPreservesRunLease(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem := mustNewMemory(t, 10)
 		leaseUntil := time.Now().Add(time.Hour).Unix()
 		seedRun(t, mem, horai.TaskStatusRunning, "node-b/run", time.Now().Add(-time.Hour).Unix(), leaseUntil)
 
-		require.NoError(t, engine(t, mem).Bind(t.Context(), schedtask.Config{
+		require.NoError(t, engine(t, mem).Register(t.Context(), schedtask.Config{
 			ID: "task", Schedule: "@every 1h", Func: func(context.Context) error { return nil },
 		}))
 		got, err := mem.GetTask(t.Context(), "task")
@@ -390,7 +404,7 @@ func TestManagementDuringRunDoesNotAllowSecondClaim(t *testing.T) {
 				require.Eventually(t, func() bool { return runs.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
 
 				second := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
-				require.NoError(t, second.Bind(t.Context(), cfg))
+				require.NoError(t, second.Register(t.Context(), cfg))
 
 				require.NoError(t, tc.stop(first, t.Context(), "task"))
 				require.NoError(t, tc.restart(first, t.Context(), "task"))
@@ -422,10 +436,10 @@ func TestShortOwnerLeaseIsAuthoritative(t *testing.T) {
 	})
 }
 
-// TestRecoveryKeepsUpdatedOccurrence abandons a one-shot run whose task was
-// updated to a later RunAt meanwhile: recovery must keep that later time
+// TestRecoveryKeepsReRegisteredOccurrence abandons a one-shot run whose task was
+// re-registered for a later RunAt meanwhile: recovery must keep that later time
 // instead of running the new occurrence at once.
-func TestRecoveryKeepsUpdatedOccurrence(t *testing.T) {
+func TestRecoveryKeepsReRegisteredOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem := mustNewMemory(t, 10)
@@ -507,8 +521,10 @@ type leaderSwitch struct{ on atomic.Bool }
 
 func (l *leaderSwitch) IsLeader() bool { return l.on.Load() }
 
-// TestStaleRegistrationDoesNotRunNewOccurrence changes a persisted one-shot
-// occurrence. Only the instance bound to the new occurrence may run it.
+// TestStaleRegistrationDoesNotRunNewOccurrence registers one one-shot task on
+// two instances with different RunAt values and functions. The task's stored
+// occurrence is the later registration's, so only that registration's function
+// may run it — never the function the first instance still holds.
 func TestStaleRegistrationDoesNotRunNewOccurrence(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -524,12 +540,7 @@ func TestStaleRegistrationDoesNotRunNewOccurrence(t *testing.T) {
 		require.NoError(t, old.Register(t.Context(), schedtask.Config{
 			ID: "task", RunAt: runAt, Func: func(context.Context) error { oldRuns.Add(1); return nil },
 		}))
-		state, err := mem.GetTask(t.Context(), "task")
-		require.NoError(t, err)
-
-		state.RunAt = runAt.Add(time.Second).Unix()
-		require.NoError(t, seedState(mem, t.Context(), state))
-		require.NoError(t, current.Bind(t.Context(), schedtask.Config{
+		require.NoError(t, current.Register(t.Context(), schedtask.Config{
 			ID: "task", RunAt: runAt.Add(time.Second), Func: func(context.Context) error { newRuns.Add(1); return nil },
 		}))
 
@@ -655,25 +666,24 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 
 // TestStaleRegistrationDoesNotStarveOtherTasks gives the only dynamic slot to
 // nothing but runnable work: a high-priority task whose stored occurrence was
-// changed elsewhere must not be dispatched, tick after tick, in front of
+// re-registered elsewhere must not be dispatched, tick after tick, in front of
 // a runnable normal-priority task.
 func TestStaleRegistrationDoesNotStarveOtherTasks(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem := mustNewMemory(t, 10)
-		leader := &leaderSwitch{}
+		leader, follower := &leaderSwitch{}, &leaderSwitch{}
 		stale := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithLeaderElector(leader),
 			scheduler.WithConcurrencyLimit(func() int { return 1 }), scheduler.WithReservedHighPrioritySlots(0))
+		current := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithLeaderElector(follower))
 		runAt := time.Now().Add(-time.Minute)
 
 		require.NoError(t, stale.Register(t.Context(), schedtask.Config{
 			ID: "stale", RunAt: runAt, Priority: schedtask.PriorityHigh, Func: func(context.Context) error { return nil },
 		}))
-		state, err := mem.GetTask(t.Context(), "stale")
-		require.NoError(t, err)
-
-		state.RunAt = runAt.Add(time.Second).Unix()
-		require.NoError(t, seedState(mem, t.Context(), state))
+		require.NoError(t, current.Register(t.Context(), schedtask.Config{
+			ID: "stale", RunAt: runAt.Add(time.Second), Func: func(context.Context) error { return nil },
+		}))
 
 		var runs atomic.Int32
 
@@ -725,7 +735,7 @@ func TestUnfinishedRunDoesNotStarveOtherTasks(t *testing.T) {
 
 		local := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond),
 			scheduler.WithConcurrencyLimit(func() int { return 1 }), scheduler.WithReservedHighPrioritySlots(0))
-		require.NoError(t, local.Bind(t.Context(), cfgFor("long", schedtask.PriorityHigh, remoteFn)))
+		require.NoError(t, local.Register(t.Context(), cfgFor("long", schedtask.PriorityHigh, remoteFn)))
 		// Wait until the resumed task is due (and unclaimable) on every tick.
 		require.Eventually(t, func() bool {
 			st, err := mem.GetTask(t.Context(), "long")
@@ -775,7 +785,9 @@ func TestMaximumStaleTimeoutLease(t *testing.T) {
 }
 
 // TestZeroNextRunIsClaimedOnce checks that an active task stored with a zero
-// NextRunAt is due after binding. It runs once and stores the next occurrence.
+// NextRunAt, kept by a registration with the same schedule, is due: it is
+// claimed without an occurrence fence, runs once, and its finished run stores
+// the next occurrence instead of leaving it due on every tick.
 func TestZeroNextRunIsClaimedOnce(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -786,7 +798,7 @@ func TestZeroNextRunIsClaimedOnce(t *testing.T) {
 		var runs atomic.Int32
 
 		s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
-		require.NoError(t, s.Bind(t.Context(), schedtask.Config{
+		require.NoError(t, s.Register(t.Context(), schedtask.Config{
 			ID: "zero", Schedule: "@every 1h", Func: func(context.Context) error { runs.Add(1); return nil },
 		}))
 

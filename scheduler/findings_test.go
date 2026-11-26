@@ -22,7 +22,7 @@ import (
 	"github.com/altessa-s/go-horai/task"
 )
 
-func TestFinishPreservesConcurrentScheduleChange(t *testing.T) {
+func TestFinishPreservesReregisteredSchedule(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		st := store(t)
@@ -35,19 +35,18 @@ func TestFinishPreservesConcurrentScheduleChange(t *testing.T) {
 		<-started
 		time.Sleep(time.Hour)
 
-		changed, err := st.GetTask(t.Context(), cfg.ID)
+		cfg.Schedule = "@every 2h"
+		replica := engine(t, st)
+		require.NoError(t, replica.Register(t.Context(), cfg))
+		registered, err := s.Task(t.Context(), cfg.ID)
 		require.NoError(t, err)
-
-		changed.Schedule = "@every 2h"
-		changed.NextRunAt = time.Now().Add(2 * time.Hour).Unix()
-		require.NoError(t, seedState(st, t.Context(), changed))
 		time.Sleep(30 * time.Minute)
 		close(finish)
 		synctest.Wait()
 
 		finished, err := s.Task(t.Context(), cfg.ID)
 		require.NoError(t, err)
-		require.Equal(t, changed.NextRunAt, finished.NextRunAt)
+		require.Equal(t, registered.NextRunAt, finished.NextRunAt)
 		require.Zero(t, finished.RunStartedAt)
 		require.NoError(t, s.Stop(t.Context()))
 	})
@@ -223,7 +222,7 @@ func TestUnregisterRetriesCombinedDeletion(t *testing.T) {
 	}
 }
 
-func TestBindExhaustedScheduleStaysCompleted(t *testing.T) {
+func TestReregisterExhaustedScheduleStaysCompleted(t *testing.T) {
 	t.Parallel()
 
 	for _, immediate := range []bool{false, true} {
@@ -252,7 +251,7 @@ func TestBindExhaustedScheduleStaysCompleted(t *testing.T) {
 				require.Equal(t, time.Date(2104, 2, 29, 0, 0, 0, 0, time.UTC), parsed.Next(clock.Now()))
 				restarted := engine(t, st, scheduler.WithClock(clock))
 				cfg.RunOnStart = immediate
-				require.NoError(t, restarted.Bind(t.Context(), cfg))
+				require.NoError(t, restarted.Register(t.Context(), cfg))
 				state, err := restarted.Task(t.Context(), cfg.ID)
 				require.NoError(t, err)
 				require.Equal(t, horai.TaskStatusCompleted, state.Status)
@@ -264,9 +263,8 @@ func TestBindExhaustedScheduleStaysCompleted(t *testing.T) {
 				require.NoError(t, restarted.Stop(t.Context()))
 
 				cfg.Schedule, cfg.RunOnStart = "@hourly", false
-				require.ErrorIs(t, restarted.Register(t.Context(), cfg), horai.ErrTaskAlreadyRegistered)
-				require.NoError(t, restarted.Unregister(t.Context(), cfg.ID))
-				require.NoError(t, restarted.Register(t.Context(), cfg))
+				updated := engine(t, st, scheduler.WithClock(clock))
+				require.NoError(t, updated.Register(t.Context(), cfg))
 				state, err = restarted.Task(t.Context(), cfg.ID)
 				require.NoError(t, err)
 				require.Equal(t, horai.TaskStatusActive, state.Status)

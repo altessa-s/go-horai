@@ -129,7 +129,7 @@ func TestTwoEnginesOneOccurrence(t *testing.T) {
 
 		cfg := task.Config{ID: "once", RunAt: time.Now(), Func: func(context.Context) error { calls.Add(1); return nil }}
 		require.NoError(t, a.Register(t.Context(), cfg))
-		require.NoError(t, b.Bind(t.Context(), cfg))
+		require.NoError(t, b.Register(t.Context(), cfg))
 		require.NoError(t, a.Start(t.Context()))
 		require.NoError(t, b.Start(t.Context()))
 		time.Sleep(3 * time.Second)

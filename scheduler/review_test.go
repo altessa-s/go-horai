@@ -216,12 +216,12 @@ type lostRegistration struct {
 func (s lostRegistration) CreateTask(context.Context, *horai.TaskState) (bool, error) {
 	return false, s.err
 }
-func TestRegistrationStorageErrors(t *testing.T) {
+func TestRegistrationLostWrites(t *testing.T) {
 	t.Parallel()
 
 	cfg := task.Config{ID: "lost", Schedule: "@hourly", Func: func(context.Context) error { return nil }}
 	s := engine(t, lostRegistration{Store: store(t)})
-	require.ErrorIs(t, s.Register(t.Context(), cfg), horai.ErrTaskAlreadyRegistered)
+	require.ErrorIs(t, s.Register(t.Context(), cfg), horai.ErrConcurrentUpdate)
 
 	failure := errors.New("write failed")
 	s = engine(t, lostRegistration{store(t), failure})
