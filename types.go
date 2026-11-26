@@ -87,8 +87,6 @@ type TaskState struct {
 	// RunAt is the occurrence a one-shot task was registered for, as Unix
 	// seconds before any clamping to the registration time; always positive for
 	// one-shot tasks registered by this release and zero for periodic tasks.
-	// [Scheduler.Register] compares it to decide whether re-registering a
-	// completed one-shot task schedules a new run.
 	RunAt     int64             `json:"run_at,omitempty"`
 	Meta      map[string]string `json:"meta,omitempty"`
 	CreatedAt int64             `json:"created_at"`
@@ -193,7 +191,7 @@ func (c RunClaim) Validate() error {
 // schedule and its next occurrence are preserved.
 //
 // RunAt identifies the one-shot occurrence the run executed (the claimed
-// state's [TaskState.RunAt]; zero for periodic runs). A task re-registered for
+// state's [TaskState.RunAt]; zero for periodic runs). A task updated to
 // a different occurrence while the run executed keeps that new occurrence
 // (status back to active if still running, NextRunAt kept).
 type RunResult struct {

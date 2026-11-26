@@ -38,7 +38,7 @@ func (s *Scheduler) runAbandoned(state *horai.TaskState, now, leaseSec int64) bo
 // to a second executor. startup only selects the log message.
 //
 // One-shot tasks are also recovered: their NextRunAt is set to now — or kept,
-// when the task was re-registered for a later RunAt during the run — so they
+// when the task was updated to a later RunAt during the run — so they
 // re-execute on the next tick. This is intentional — a one-shot task whose run
 // was abandoned never completed successfully, so it should be retried. If this
 // is undesirable for a particular task, callers should use idempotency checks
@@ -106,7 +106,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale horai.T
 			s.advanceSchedule(opCtx, now, state)
 		} else if state.OneShot {
 			// Retry the abandoned occurrence now — unless the task was
-			// re-registered for a later one during the run, which keeps its time.
+			// updated to a later one during the run, which keeps its time.
 			state.NextRunAt = max(state.NextRunAt, now.Unix())
 		}
 	}

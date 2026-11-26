@@ -110,10 +110,9 @@ type registeredTask struct {
 func (t *registeredTask) claim() bool { return t.dispatched.CompareAndSwap(false, true) }
 
 // matches reports whether state is the occurrence this registration was made
-// for: the same kind of task and, for a one-shot task, the same RunAt. Another
-// registration — a concurrent local re-registration, or another instance's —
-// may have moved the persisted task to a different occurrence; running this
-// registration's function for it would execute the wrong configuration.
+// for: the same kind of task and, for a one-shot task, the same RunAt.
+// Another instance can remove the task and reuse its ID, so check the
+// occurrence before dispatching the locally bound function.
 func (t *registeredTask) matches(state *horai.TaskState) bool {
 	oneShot := !t.config.RunAt.IsZero()
 	if oneShot != state.OneShot {

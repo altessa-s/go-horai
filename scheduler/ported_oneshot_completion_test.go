@@ -109,10 +109,9 @@ func TestOneShotFinishedAfterManagementIsTerminal(t *testing.T) {
 	})
 }
 
-// TestReRegisterCompletedOneShot checks that registering a completed one-shot
-// task again — as every instance and every restart does — keeps it completed
-// for the same RunAt, and that only a different RunAt schedules a new run.
-func TestReRegisterCompletedOneShot(t *testing.T) {
+// TestBindCompletedOneShot checks that binding on a second instance keeps
+// the completed occurrence and that a replacement requires explicit removal.
+func TestBindCompletedOneShot(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem := mustNewMemory(t, 10)
@@ -129,55 +128,22 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 		requireCompleted(t, s)
 		require.Equal(t, int32(1), runs.Load())
 
-		// Same RunAt, from this or another instance: stays completed.
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(runAt, &runs, released)))
+		require.ErrorIs(t, s.Register(t.Context(), blockingOneShot(runAt, &runs, released)), horai.ErrTaskAlreadyRegistered)
 		other := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
-		require.NoError(t, other.Register(t.Context(), blockingOneShot(runAt, &runs, released)))
+		require.NoError(t, other.Bind(t.Context(), blockingOneShot(runAt, &runs, released)))
 		st, err := s.Task(t.Context(), "task")
 		require.NoError(t, err)
 		require.Equal(t, horai.TaskStatusCompleted, st.Status)
 		require.Equal(t, runAt.Unix(), st.RunAt)
 		require.Never(t, func() bool { return runs.Load() > 1 }, time.Second, 20*time.Millisecond,
-			"re-registering with the same RunAt ran the task again")
+			"binding the completed occurrence ran the task again")
 
-		// A new RunAt is a new occurrence.
+		require.ErrorIs(t, s.Register(t.Context(), blockingOneShot(runAt.Add(time.Second), &runs, released)), horai.ErrTaskAlreadyRegistered)
+		require.NoError(t, s.Unregister(t.Context(), "task"))
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(runAt.Add(time.Second), &runs, released)))
 		require.Eventually(t, func() bool { return runs.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
 			"a new RunAt must schedule a new run")
 		requireCompleted(t, s)
-	})
-}
-
-// TestReRegisterDifferentCompletedOccurrence covers tasks completed with a different RunAt
-// persisted: registration now requires an exact RunAt match.
-func TestReRegisterDifferentCompletedOccurrence(t *testing.T) {
-	t.Parallel()
-	synctest.Test(t, func(t *testing.T) {
-		lastRun := time.Now().Add(-time.Hour).Truncate(time.Second)
-
-		for _, tc := range []struct {
-			name   string
-			runAt  time.Time
-			status horai.TaskStatus
-		}{
-			{"earlier_run_at", lastRun.Add(-time.Minute), horai.TaskStatusActive},
-			{"equal_run_at", lastRun, horai.TaskStatusActive},
-			{"later_run_at", lastRun.Add(time.Minute), horai.TaskStatusActive},
-		} {
-			runCase(t, tc.name, func(t *testing.T) {
-				mem := mustNewMemory(t, 10)
-				require.NoError(t, seedState(mem, t.Context(), &horai.TaskState{
-					ID: "task", Status: horai.TaskStatusCompleted, OneShot: true, LastRunAt: lastRun.Unix()}))
-
-				require.NoError(t, engine(t, mem).Register(t.Context(), schedtask.Config{
-					ID: "task", RunAt: tc.runAt, Func: func(context.Context) error { return nil },
-				}))
-				st, err := mem.GetTask(t.Context(), "task")
-				require.NoError(t, err)
-				require.Equal(t, tc.status, st.Status)
-				require.Equal(t, tc.runAt.Unix(), st.RunAt, "registration records the RunAt from now on")
-			})
-		}
 	})
 }
 
@@ -246,11 +212,9 @@ func (s *finishBeforeReplace) ReplaceTaskIf(ctx context.Context, state *horai.Ta
 	return s.Store.ReplaceTaskIf(ctx, state, expect)
 }
 
-// TestReRegisterNewRunAtDuringRun re-registers a one-shot task for a new RunAt
-// while its run for the old one executes. The finishing run must not complete
-// the new occurrence: it runs afterwards, and registering it again later does
-// not run it a third time.
-func TestReRegisterNewRunAtDuringRun(t *testing.T) {
+// TestFinishKeepsNewRunAt changes the stored occurrence while the old one
+// runs. The finishing run must leave the new occurrence available.
+func TestFinishKeepsNewRunAt(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		mem := mustNewMemory(t, 10)
@@ -265,7 +229,14 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(first, &runs, release)))
 		require.Eventually(t, func() bool { return runs.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
 
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)))
+		require.ErrorIs(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)), horai.ErrTaskAlreadyRegistered)
+		state, err := mem.GetTask(t.Context(), "task")
+		require.NoError(t, err)
+
+		state.RunAt = second.Unix()
+		require.NoError(t, seedState(mem, t.Context(), state))
+		other := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+		require.NoError(t, other.Bind(t.Context(), blockingOneShot(second, &runs, release)))
 		close(release)
 
 		require.Eventually(t, func() bool { return runs.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
@@ -275,7 +246,7 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, second.Unix(), st.RunAt)
 
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)))
+		require.ErrorIs(t, other.Register(t.Context(), blockingOneShot(second, &runs, release)), horai.ErrTaskAlreadyRegistered)
 		require.Never(t, func() bool { return runs.Load() > 2 }, time.Second, 20*time.Millisecond)
 	})
 }

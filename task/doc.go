@@ -3,4 +3,6 @@
 // the LICENSE file.
 
 // Package task defines the task registration contract.
+//
+// [Registrar.Register] rejects duplicate IDs with horai.ErrTaskAlreadyRegistered.
 package task

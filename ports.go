@@ -17,6 +17,8 @@ import (
 // DeleteTask deletes history before the task, leaving the task retryable on cleanup failure.
 type TaskStore interface {
 	GetTask(context.Context, string) (*TaskState, error)
+	// CreateTask atomically inserts state if its ID is absent. It returns
+	// (false, nil) when that ID exists and leaves the existing task unchanged.
 	CreateTask(context.Context, *TaskState) (bool, error)
 	ReplaceTaskIf(context.Context, *TaskState, TaskFence) (bool, error)
 	DeleteTask(context.Context, string) error

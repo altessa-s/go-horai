@@ -6,9 +6,13 @@ package horai
 
 import "errors"
 
-// ErrTaskNotFound is returned by the scheduler Pause method, the scheduler Resume method,
-// the scheduler Disable method, the scheduler Enable method, the scheduler SkipNextRun method,
-// and the scheduler Trigger method when no task with the given ID exists in storage.
+// ErrTaskAlreadyRegistered is returned when a task ID collides with a
+// persisted task or a handler already installed on this scheduler.
+var ErrTaskAlreadyRegistered = errors.New("task already registered")
+
+// ErrTaskNotFound is returned by the scheduler's Bind, Pause, Resume, Disable,
+// Enable, SkipNextRun, and Trigger methods when no task with the given ID exists
+// in storage.
 var ErrTaskNotFound = errors.New("task not found")
 
 // ErrTaskNotRegistered is returned by the scheduler Trigger method when the task ID is not
@@ -49,12 +53,12 @@ var ErrTaskAlreadyDispatched = errors.New("task already dispatched")
 // is configured and it returns false, indicating that subsystems are not yet ready.
 var ErrNotReady = errors.New("subsystems not ready")
 
-// ErrScheduleConflict is returned by the scheduler Register method when the provided
-// [task.Config] sets both RunAt and Schedule, which are mutually exclusive.
+// ErrScheduleConflict is returned by the scheduler's Register and Bind methods
+// when the task configuration sets both RunAt and Schedule.
 var ErrScheduleConflict = errors.New("RunAt and Schedule are mutually exclusive")
 
 // ErrConcurrentUpdate is returned by the task management methods
-// (the scheduler Register method, the scheduler Pause method, the scheduler Resume method,
+// (the scheduler Pause method, the scheduler Resume method,
 // the scheduler Disable method, the scheduler Enable method, the scheduler SkipNextRun method)
 // when concurrent writes kept invalidating the read-modify-write for
 // the configured retry limit attempts. Retrying the call is safe.

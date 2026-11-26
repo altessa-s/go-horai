@@ -69,7 +69,7 @@ func FinishRun(t *testing.T, store horai.Store) {
 			require.False(t, ok, "a run can finish only once")
 		})
 	}
-	// A one-shot task re-registered for another occurrence while the run
+	// A one-shot task updated to another occurrence while the run
 	// executed keeps that occurrence: the run did not execute it.
 	for _, tc := range []struct {
 		name       string

@@ -1606,10 +1606,10 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 		require.Equal(t, horai.TaskStatusActive, state.Status, "expected task to be reset to Active after startup recovery")
 		require.Equal(t, int32(1), state.Failures, "expected failures to be incremented to 1")
 
-		// Register the task function and verify it eventually executes
+		// Bind the task function and verify it eventually executes
 		var execCount atomic.Int32
 
-		err = s.Register(ctx, schedtask.Config{
+		err = s.Bind(ctx, schedtask.Config{
 			ID:       "stale-startup",
 			Schedule: "@every 1s",
 			Func: func(_ context.Context) error {
@@ -1621,7 +1621,7 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 
 		time.Sleep(2 * time.Second)
 
-		require.NotEqual(t, int32(0), execCount.Load(), "recovered task should have executed after registration")
+		require.NotEqual(t, int32(0), execCount.Load(), "recovered task should have executed after binding")
 	})
 }
 

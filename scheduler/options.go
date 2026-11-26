@@ -41,9 +41,6 @@ const (
 	// every [horai.Store] call the scheduler makes on its own behalf.
 	// See [WithStorageTimeout].
 	DefaultStorageTimeout = 10 * time.Second
-	// DefaultRunOnStartGrace is the default window within which a recent run
-	// suppresses a RunOnStart run. See [WithRunOnStartGrace].
-	DefaultRunOnStartGrace = 5 * time.Minute
 	// maxStaleRecoveryInterval caps the stale recovery ticker interval.
 	maxStaleRecoveryInterval = 5 * time.Minute
 	// minRunLease is the shortest run lease an instance persists, whatever
@@ -59,7 +56,6 @@ type options struct {
 	staleTaskTimeout          time.Duration `optgen:"default=DefaultStaleTaskTimeout" optval:"nonpositive"`
 	cleanupInterval           time.Duration `optgen:"default=DefaultCleanupInterval" optval:"nonpositive"`
 	storageTimeout            time.Duration `optgen:"default=DefaultStorageTimeout" optval:"nonpositive"`
-	runOnStartGrace           time.Duration `optgen:"default=DefaultRunOnStartGrace" optval:"nonpositive"`
 	instanceID                string
 	maxConcurrentTasks        int `optgen:"default=DefaultMaxConcurrentTasks"`
 	reservedHighPrioritySlots int `optgen:"default=DefaultReservedHighPrioritySlots"`

@@ -1,6 +1,9 @@
 # scheduler
 
-Register task functions, then Start the engine. Stop cancels and drains executions.
+Use `Register` to create a task. Duplicate IDs in storage or on the local scheduler return `horai.ErrTaskAlreadyRegistered`.
+Use `Bind` to attach a function to an existing task after a restart or on another replica. The schedule or one-shot `RunAt` must match the stored task. Binding preserves the current schedule and execution state. `RunOnStart` applies only when creating a periodic task.
+
+Start the engine to dispatch tasks. Stop cancels and drains executions.
 Run IDs combine instance identity and random bytes. Leases are renewed until finalization ends.
 Recovery queries all unfinished runs, including paused and disabled tasks, and resets only abandoned runs using revision fences.
 
