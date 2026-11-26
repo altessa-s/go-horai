@@ -25,7 +25,8 @@ import (
 func TestFinishPreservesReregisteredSchedule(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
-		s := engine(t, store(t))
+		st := store(t)
+		s := engine(t, st)
 		started, finish := make(chan struct{}), make(chan struct{})
 		cfg := task.Config{ID: "changing", Schedule: "@every 1h", Func: func(context.Context) error { close(started); <-finish; return nil }}
 		require.NoError(t, s.Register(t.Context(), cfg))
@@ -35,7 +36,8 @@ func TestFinishPreservesReregisteredSchedule(t *testing.T) {
 		time.Sleep(time.Hour)
 
 		cfg.Schedule = "@every 2h"
-		require.NoError(t, s.Register(t.Context(), cfg))
+		replica := engine(t, st)
+		require.NoError(t, replica.Register(t.Context(), cfg))
 		registered, err := s.Task(t.Context(), cfg.ID)
 		require.NoError(t, err)
 		time.Sleep(30 * time.Minute)
@@ -261,7 +263,8 @@ func TestReregisterExhaustedScheduleStaysCompleted(t *testing.T) {
 				require.NoError(t, restarted.Stop(t.Context()))
 
 				cfg.Schedule, cfg.RunOnStart = "@hourly", false
-				require.NoError(t, restarted.Register(t.Context(), cfg))
+				updated := engine(t, st, scheduler.WithClock(clock))
+				require.NoError(t, updated.Register(t.Context(), cfg))
 				state, err = restarted.Task(t.Context(), cfg.ID)
 				require.NoError(t, err)
 				require.Equal(t, horai.TaskStatusActive, state.Status)

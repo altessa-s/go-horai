@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-horai/scheduler"
 ```
 
 Durable periodic and one-shot scheduling with atomic occurrence claims, renewable leases, fenced management, and execution history.
-Consumers own backend clients and lifecycle. Register task functions before or after starting the scheduler; call Stop to cancel and drain runs.
+Consumers own backend clients and lifecycle. Register tasks before or after starting the scheduler. Call Stop to cancel and drain runs.
 
 ```go
 store, err := memory.New()
@@ -19,6 +19,15 @@ err = engine.Register(ctx, task.Config{
 if err != nil { return err }
 return engine.Start(ctx)
 ```
+
+## Registration
+
+`Register` returns an error matching `horai.ErrTaskAlreadyRegistered` via `errors.Is` when the ID is already registered on that scheduler
+instance. The original handler and persisted task are preserved.
+
+Call `Register` with the same task ID on each replica and after restarts. Each scheduler installs its local handler and adopts the stored
+task, preserving run history and any in-flight run. For periodic tasks, `RunOnStart` makes the task due immediately unless a run started
+within the grace window. Configure the window with `scheduler.WithRunOnStartGrace`. The default is five minutes.
 
 ## Packages and modules
 

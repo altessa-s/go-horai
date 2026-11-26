@@ -257,6 +257,7 @@ func endToEnd(t *testing.T, st horai.Store) {
 
 	cfg := task.Config{ID: namespace(), RunAt: time.Now(), Func: func(context.Context) error { calls.Add(1); return nil }}
 	require.NoError(t, a.Register(t.Context(), cfg))
+	require.ErrorIs(t, a.Register(t.Context(), cfg), horai.ErrTaskAlreadyRegistered)
 	require.NoError(t, b.Register(t.Context(), cfg))
 	require.NoError(t, a.Start(t.Context()))
 	require.NoError(t, b.Start(t.Context()))

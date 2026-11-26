@@ -6,6 +6,10 @@ package horai
 
 import "errors"
 
+// ErrTaskAlreadyRegistered is returned when Register finds the task ID
+// already registered on the same scheduler instance.
+var ErrTaskAlreadyRegistered = errors.New("task already registered")
+
 // ErrTaskNotFound is returned by the scheduler Pause method, the scheduler Resume method,
 // the scheduler Disable method, the scheduler Enable method, the scheduler SkipNextRun method,
 // and the scheduler Trigger method when no task with the given ID exists in storage.

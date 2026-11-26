@@ -206,7 +206,6 @@ func TestScheduler_StorageTimeout_TickLoopRecovers(t *testing.T) {
 // Not parallel: it reads runtime.NumGoroutine(), which is process-global and
 // would be perturbed by any test running alongside it.
 func TestScheduler_StaticSemaphore_DoesNotAccumulateGoroutines(t *testing.T) {
-	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const (
 			tickInterval  = 20 * time.Millisecond
