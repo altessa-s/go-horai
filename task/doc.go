@@ -4,5 +4,6 @@
 
 // Package task defines the task registration contract.
 //
-// [Registrar.Register] rejects duplicate IDs with horai.ErrTaskAlreadyRegistered.
+// [Registrar.Register] adopts persisted tasks and rejects duplicate IDs within
+// the same scheduler instance with horai.ErrTaskAlreadyRegistered.
 package task

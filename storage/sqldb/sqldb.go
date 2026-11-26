@@ -152,7 +152,7 @@ func (s *Store) buildStatements() statements {
 	// owned is the ownership predicate shared by RenewRun and FinishRun.
 	const owned = " WHERE id = ? AND last_run_id = ? AND run_started_at <> 0"
 	// executed: a one-shot task still registered for the occurrence the run
-	// executed (a concurrent change may have moved it to another run_at meanwhile).
+	// executed (re-registration may have moved it to another run_at meanwhile).
 	const executed = "(one_shot AND run_at = ?)"
 
 	return statements{

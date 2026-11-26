@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-horai"
+	"github.com/altessa-s/go-horai/scheduler"
 
 	schedtask "github.com/altessa-s/go-horai/task"
 )
@@ -29,14 +30,16 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 			name       string
 			lastRun    time.Duration // before now; 0 means never ran
 			inFlight   bool          // the recent start is a run still in progress
+			grace      time.Duration
 			runOnStart bool
 			wantNow    bool
 		}{
-			{name: "never ran", runOnStart: true, wantNow: true},
-			{name: "ran long ago", lastRun: 30 * time.Minute, runOnStart: true, wantNow: true},
-			{name: "ran within grace", lastRun: time.Minute, runOnStart: true},
-			{name: "run in flight within grace", lastRun: time.Minute, inFlight: true, runOnStart: true},
-			{name: "flag off keeps the stored schedule", lastRun: 30 * time.Minute},
+			{name: "never ran", runOnStart: true, grace: scheduler.DefaultRunOnStartGrace, wantNow: true},
+			{name: "ran long ago", lastRun: 30 * time.Minute, runOnStart: true, grace: scheduler.DefaultRunOnStartGrace, wantNow: true},
+			{name: "ran within grace", lastRun: time.Minute, runOnStart: true, grace: scheduler.DefaultRunOnStartGrace},
+			{name: "run in flight within grace", lastRun: time.Minute, inFlight: true, runOnStart: true, grace: scheduler.DefaultRunOnStartGrace},
+			{name: "minimal grace runs on every start", lastRun: time.Minute, runOnStart: true, grace: time.Nanosecond, wantNow: true},
+			{name: "flag off keeps the stored schedule", lastRun: 30 * time.Minute, grace: scheduler.DefaultRunOnStartGrace},
 		}
 		for _, tc := range tests {
 			runCase(t, tc.name, func(t *testing.T) {
@@ -62,7 +65,7 @@ func TestRunOnStartForStoredTask(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, created)
 
-				s := engine(t, storage)
+				s := engine(t, storage, scheduler.WithRunOnStartGrace(tc.grace))
 				require.NoError(t, s.Register(ctx, schedtask.Config{
 					ID: "task", Schedule: schedule, RunOnStart: tc.runOnStart,
 					Func: func(context.Context) error { return nil },

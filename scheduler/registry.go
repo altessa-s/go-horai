@@ -19,17 +19,46 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// Register creates a task in [horai.Store] and installs its function in the
-// in-memory dispatch map. If the ID already exists in either place, Register
-// returns [horai.ErrTaskAlreadyRegistered]. Use [Scheduler.Bind] to install a
-// function for a persisted task on a new scheduler instance.
+// Register installs a task on this scheduler instance. If a task with the same
+// ID is already registered on this instance, Register returns
+// [horai.ErrTaskAlreadyRegistered] without changing the handler or stored state.
+// When the ID exists only in [horai.Store], Register adopts the task, updating
+// its configuration while preserving execution history and any in-flight run.
 //
 // cfg must have a non-empty ID and a non-nil Func. Exactly one of Schedule or
-// RunAt must be set. RunAt must be after the Unix epoch, and Schedule must have
-// a future activation. If Priority is unset, it defaults to [schedtask.PriorityNormal].
+// RunAt must be set; providing both returns [horai.ErrScheduleConflict]. RunAt must
+// be after the Unix epoch. Schedule
+// strings are validated against the cron parser on registration. If Priority is
+// unset, it defaults to [schedtask.PriorityNormal].
+//
+// Re-registering a completed periodic task with the same schedule keeps it
+// completed, even if the parser can now find a future activation. Changing its
+// schedule permits a new run.
+//
+// Re-registering a [horai.TaskStatusCompleted] one-shot task with the RunAt it
+// completed for keeps it completed, so every instance or restart that registers
+// the same one-shot task does not run it again. Only a different RunAt resets
+// it to [horai.TaskStatusActive] and schedules a new run. Tasks completed before
+// RunAt was persisted count as registered for their last run's start time: a
+// RunAt after it schedules a new run, an earlier or equal one does not.
 func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
-	sched, err := parseTaskConfig(cfg)
-	if err != nil {
+	lock := s.registrationLock(cfg.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.RLock()
+	_, registered := s.tasks[cfg.ID]
+	s.mu.RUnlock()
+
+	if registered {
+		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskAlreadyRegistered)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := validateTaskConfig(cfg); err != nil {
 		return err
 	}
 
@@ -40,16 +69,16 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 	cfg.Meta = maps.Clone(cfg.Meta)
 	isOneShot := !cfg.RunAt.IsZero()
 
-	lock := s.registrationLock(cfg.ID)
-	lock.Lock()
-	defer lock.Unlock()
+	// Validate schedule for periodic tasks
+	var sched schedule.Schedule
 
-	if s.isRegistered(cfg.ID) {
-		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskAlreadyRegistered)
-	}
+	if !isOneShot {
+		var err error
 
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
+		sched, err = schedule.Parse(cfg.Schedule)
+		if err != nil {
+			return err
+		}
 	}
 
 	now := s.opts.clock.Now()
@@ -66,6 +95,7 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 		runAt = cfg.RunAt.Unix()
 	}
 
+	// Create or update storage state
 	state := &horai.TaskState{
 		ID:             cfg.ID,
 		Description:    cfg.Description,
@@ -83,16 +113,18 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 		UpdatedAt:      nowUnix,
 	}
 
-	created, err := s.storage.CreateTask(ctx, state)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "create task state")
+	if err := s.saveRegistered(ctx, state, cfg, nextRun, now, runAt); err != nil {
+		return err
 	}
 
-	if !created {
-		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskAlreadyRegistered)
+	s.mu.Lock()
+	s.tasks[cfg.ID] = &registeredTask{
+		config: cfg,
+		parsed: sched,
 	}
-
-	s.installTask(cfg, sched)
+	n := len(s.tasks)
+	s.mu.Unlock()
+	s.metrics.RegisteredChanged(n)
 
 	logAttrs := []any{
 		slog.String("task_id", cfg.ID),
@@ -163,91 +195,108 @@ func firstRun(cfg schedtask.Config, sched schedule.Schedule, now time.Time) time
 	return sched.Next(now)
 }
 
-// Bind installs the function and execution timeout for an existing task on this
-// scheduler instance. Use it after a restart or on another replica sharing the
-// store. The supplied Schedule or RunAt must match the persisted task. Bind
-// uses the persisted priority and leaves the stored state, including the next
-// run, unchanged. RunOnStart applies only when Register creates the task.
-//
-// Bind returns [horai.ErrTaskNotFound] for an absent task,
-// [horai.ErrTaskAlreadyRegistered] for an ID already bound in this instance,
-// and [horai.ErrInvalidArgument] for a mismatched schedule or RunAt.
-func (s *Scheduler) Bind(ctx context.Context, cfg schedtask.Config) error {
-	sched, err := parseTaskConfig(cfg)
-	if err != nil {
-		return err
+// saveRegistered stores base, the state registered for cfg: it creates the
+// task when absent, or merges base with the existing state, and writes it
+// fenced on that state, so a concurrent claim, finish or management change is
+// never overwritten. It retries a lost write up to [MaxUpdateAttempts] times
+// and then returns [horai.ErrConcurrentUpdate].
+func (s *Scheduler) saveRegistered(
+	ctx context.Context, base *horai.TaskState, cfg schedtask.Config, nextRun, now time.Time, runAt int64,
+) error {
+	for range MaxUpdateAttempts {
+		existing, err := s.storage.GetTask(ctx, cfg.ID)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "check existing task")
+		}
+
+		var saved bool
+		if existing == nil {
+			// Insert-if-absent: another instance may create (and claim) the
+			// task between the read above and this write. Losing that race
+			// falls through to the fenced merge on the next iteration.
+			if saved, err = s.storage.CreateTask(ctx, base); err != nil {
+				return coreerrs.WrapOperation(err, "save task state")
+			}
+		} else {
+			// Description is always updated from config (allows changing
+			// description without recreating task)
+			state := s.mergeRegistered(base, existing, cfg, nextRun, now, runAt)
+			if saved, err = s.storage.ReplaceTaskIf(ctx, state, horai.FenceOf(existing)); err != nil {
+				return coreerrs.WrapOperation(err, "save task state")
+			}
+		}
+
+		if saved {
+			return nil
+		}
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
 
-	lock := s.registrationLock(cfg.ID)
-	lock.Lock()
-	defer lock.Unlock()
-
-	if s.isRegistered(cfg.ID) {
-		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskAlreadyRegistered)
-	}
-
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
-	}
-
-	state, err := s.storage.GetTask(ctx, cfg.ID)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "read task state")
-	}
-
-	if state == nil {
-		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskNotFound)
-	}
-
-	var runAt int64
-	if !cfg.RunAt.IsZero() {
-		runAt = cfg.RunAt.Unix()
-	}
-
-	if state.OneShot != !cfg.RunAt.IsZero() || state.RunAt != runAt || state.Schedule != cfg.Schedule {
-		return fmt.Errorf("task %q: schedule or RunAt differs from stored task: %w", cfg.ID, horai.ErrInvalidArgument)
-	}
-
-	cfg.Priority = state.Priority
-	if cfg.Priority == schedtask.PriorityUnspecified {
-		cfg.Priority = schedtask.PriorityNormal
-	}
-
-	cfg.Meta = maps.Clone(cfg.Meta)
-	s.installTask(cfg, sched)
-
-	return nil
+	return horai.ErrConcurrentUpdate
 }
 
-// parseTaskConfig validates cfg and parses its periodic schedule.
-func parseTaskConfig(cfg schedtask.Config) (schedule.Schedule, error) {
-	if err := validateTaskConfig(cfg); err != nil {
-		return nil, err
+// mergeRegistered returns base, the state registered for cfg, merged with the
+// task's existing stored state: execution history and an in-flight run are
+// kept, the next run follows a changed schedule or RunOnStart, and the status
+// is kept or reset as [Scheduler.Register] documents.
+func (s *Scheduler) mergeRegistered(
+	base, existing *horai.TaskState, cfg schedtask.Config, nextRun, now time.Time, runAt int64,
+) *horai.TaskState {
+	isOneShot := !cfg.RunAt.IsZero()
+	nowUnix := now.Unix()
+	state := new(*base)
+	// Preserve certain fields from existing state
+	state.CreatedAt = existing.CreatedAt
+	state.LastRunAt = existing.LastRunAt
+	state.LastRunID = existing.LastRunID
+	state.RunStartedAt = existing.RunStartedAt   // keeps an in-flight run finishable
+	state.RunLeaseUntil = existing.RunLeaseUntil // keeps an in-flight run's lease
+	state.RunLeaseID = existing.RunLeaseID
+
+	state.Failures = existing.Failures
+	if isOneShot {
+		// One-shot: always use computed nextRun
+		state.NextRunAt = nextRun.Unix()
+	} else {
+		// Update next run time if schedule changed
+		if existing.Schedule != cfg.Schedule {
+			state.NextRunAt = nextRun.Unix()
+		} else {
+			state.NextRunAt = existing.NextRunAt
+			if cfg.RunOnStart && !startedWithin(existing, now, s.opts.runOnStartGrace) {
+				// The stored schedule would otherwise keep RunOnStart
+				// from ever applying to a task that already exists.
+				state.NextRunAt = min(state.NextRunAt, nowUnix)
+			}
+		}
 	}
 
-	if cfg.Schedule != "" {
-		return schedule.Parse(cfg.Schedule)
+	switch {
+	case existing.Status == horai.TaskStatusCompleted && !isOneShot && !existing.OneShot && existing.Schedule == cfg.Schedule:
+		// Exhaustion is terminal for an unchanged periodic schedule.
+		state.Status = horai.TaskStatusCompleted
+		state.NextRunAt = existing.NextRunAt
+	case existing.Status == horai.TaskStatusCompleted && isOneShot && existing.OneShot && completedFor(existing, runAt):
+		// Same occurrence as the one already executed: stay completed.
+		state.Status = horai.TaskStatusCompleted
+		state.NextRunAt = existing.NextRunAt
+	case existing.Status == horai.TaskStatusCompleted:
+		// A new occurrence (or a changed kind of task) runs again.
+		state.Status = horai.TaskStatusActive
+	case existing.Status != horai.TaskStatusActive:
+		// Preserve status if not active
+		state.Status = existing.Status
 	}
 
-	return nil, nil //nolint:nilnil // one-shot tasks have no cron schedule
+	return state
 }
 
-func (s *Scheduler) isRegistered(id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	_, registered := s.tasks[id]
-
-	return registered
-}
-
-func (s *Scheduler) installTask(cfg schedtask.Config, sched schedule.Schedule) {
-	s.mu.Lock()
-	s.tasks[cfg.ID] = &registeredTask{config: cfg, parsed: sched}
-	n := len(s.tasks)
-	s.mu.Unlock()
-	s.metrics.RegisteredChanged(n)
-}
+// completedFor reports whether the completed one-shot task existing already
+// executed the occurrence registered for runAt (Unix seconds).
+func completedFor(existing *horai.TaskState, runAt int64) bool { return existing.RunAt == runAt }
 
 // Unregister removes a task from both the in-memory dispatch map and the
 // [horai.Store] backend. History deletion is best effort, including a separate
@@ -279,7 +328,11 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 		return err
 	}
 
-	if state == nil && !s.isRegistered(id) {
+	s.mu.RLock()
+	_, registered := s.tasks[id]
+	s.mu.RUnlock()
+
+	if state == nil && !registered {
 		return horai.ErrTaskNotRegistered
 	}
 

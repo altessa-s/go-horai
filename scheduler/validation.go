@@ -23,6 +23,7 @@ func validateOptions(o *options) error {
 		{"cleanupInterval", o.cleanupInterval <= 0},
 		{"storageTimeout", o.storageTimeout <= 0},
 		{"historyRetention", o.historyRetention < 0},
+		{"runOnStartGrace", o.runOnStartGrace < 0},
 		{"maxConcurrentTasks", o.maxConcurrentTasks < 0 || o.maxConcurrentTasks > MaxConcurrentTasks},
 		{"reservedHighPrioritySlots", o.reservedHighPrioritySlots < 0 || o.reservedHighPrioritySlots > MaxConcurrentTasks ||
 			(o.maxConcurrentTasks > 0 && o.reservedHighPrioritySlots >= o.maxConcurrentTasks)},

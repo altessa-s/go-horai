@@ -7,6 +7,7 @@ package scheduler
 import (
 	"context"
 	"iter"
+	"time"
 
 	horai "github.com/altessa-s/go-horai"
 )
@@ -317,4 +318,16 @@ func (s *Scheduler) Trigger(ctx context.Context, id string) error {
 	})
 
 	return nil
+}
+
+// startedWithin reports whether the task started a run — finished
+// (LastRunAt) or still in flight (RunStartedAt) — within grace before now.
+// A non-positive grace never counts a run as recent.
+func startedWithin(st *horai.TaskState, now time.Time, grace time.Duration) bool {
+	last := max(st.LastRunAt, st.RunStartedAt)
+	if grace <= 0 || last == 0 {
+		return false
+	}
+
+	return now.Sub(time.Unix(last, 0)) < grace
 }

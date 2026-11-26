@@ -78,6 +78,7 @@ func TestConcurrentRegisterRejectsDuplicateID(t *testing.T) {
 
 func TestConcurrentRegisterAcrossSchedulers(t *testing.T) {
 	t.Parallel()
+
 	for _, seeded := range []bool{false, true} {
 		name := "new task"
 		if seeded {
@@ -88,6 +89,7 @@ func TestConcurrentRegisterAcrossSchedulers(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				st := store(t)
 				first, second := engine(t, st), engine(t, st)
+
 				cfg := task.Config{ID: "shared", Schedule: "@every 1h", Func: func(context.Context) error { return nil }}
 				if seeded {
 					require.NoError(t, engine(t, st).Register(t.Context(), cfg))
@@ -95,11 +97,14 @@ func TestConcurrentRegisterAcrossSchedulers(t *testing.T) {
 
 				start := make(chan struct{})
 				results := make(chan error, 2)
-				calls := make([]atomic.Int32, 2)
+
+				var calls [2]atomic.Int32
+
 				for i, registrar := range []task.Registrar{first, second} {
 					go func() {
 						local := cfg
 						local.Func = func(context.Context) error { calls[i].Add(1); return nil }
+
 						<-start
 
 						results <- registrar.Register(t.Context(), local)
@@ -111,9 +116,11 @@ func TestConcurrentRegisterAcrossSchedulers(t *testing.T) {
 				a, b := <-results, <-results
 				require.NoError(t, a)
 				require.NoError(t, b)
+
 				require.NoError(t, first.Start(t.Context()))
-				require.NoError(t, second.Start(t.Context()))
 				defer func() { require.NoError(t, first.Stop(t.Context())) }()
+
+				require.NoError(t, second.Start(t.Context()))
 				defer func() { require.NoError(t, second.Stop(t.Context())) }()
 
 				require.NoError(t, first.Trigger(t.Context(), cfg.ID))

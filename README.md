@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-horai/scheduler"
 ```
 
 Durable periodic and one-shot scheduling with atomic occurrence claims, renewable leases, fenced management, and execution history.
-Consumers own backend clients and lifecycle. Register new tasks before or after starting the scheduler. Call Stop to cancel and drain runs.
+Consumers own backend clients and lifecycle. Register tasks before or after starting the scheduler. Call Stop to cancel and drain runs.
 
 ```go
 store, err := memory.New()
@@ -22,11 +22,12 @@ return engine.Start(ctx)
 
 ## Registration
 
-`Register` creates a task by ID. If the ID already exists in the store or in the scheduler's local dispatch map, the call returns an error matching `horai.ErrTaskAlreadyRegistered` via `errors.Is`.
+`Register` returns an error matching `horai.ErrTaskAlreadyRegistered` via `errors.Is` when the ID is already registered on that scheduler
+instance. The original handler and persisted task are preserved.
 
-After a restart or when adding a replica, call `Scheduler.Bind` with the persisted task's ID and schedule or one-shot `RunAt` to attach its function on the new instance. Binding preserves the stored next run, status, lease, and history. `RunOnStart` applies to new tasks only.
-
-Use a new ID for a new one-shot occurrence. To replace a task under the same ID, explicitly unregister it first. Unregistering also deletes task history on a best-effort basis.
+Call `Register` with the same task ID on each replica and after restarts. Each scheduler installs its local handler and adopts the stored
+task, preserving run history and any in-flight run. For periodic tasks, `RunOnStart` makes the task due immediately unless a run started
+within the grace window. Configure the window with `scheduler.WithRunOnStartGrace`. The default is five minutes.
 
 ## Packages and modules
 
@@ -48,7 +49,7 @@ Use a new ID for a new one-shot occurrence. To replace a task under the same ID,
 ## Ownership
 
 ClaimRun atomically verifies status, unfinished-run state, and occurrence identity. Renew and finish require the owning run ID.
-Registration uses atomic insert-if-absent. Management uses revision fences to preserve concurrent execution. Recovery includes paused and disabled unfinished runs.
+Management and registration use revision fences, preserving concurrent execution. Recovery includes paused and disabled unfinished runs.
 A restarted process with the same instance ID recovers its own abandoned runs before lease expiry; active local runs remain protected.
 An abandoned run may execute again: task functions should tolerate retries after process failure. Stored data formats are not compatibility APIs.
 

@@ -518,7 +518,7 @@ func (s *Store) FinishRun(ctx context.Context, id, runID string, result horai.Ru
 
 	oneShot := bson.M{opIfNull: bson.A{"$one_shot", false}}
 	// executed: a one-shot task still registered for the occurrence this run
-	// executed (a concurrent change may have moved it to another RunAt meanwhile).
+	// executed (re-registration may have moved it to another RunAt meanwhile).
 	executed := bson.M{opAnd: bson.A{
 		oneShot,
 		bson.M{opEq: bson.A{bson.M{opIfNull: bson.A{"$run_at", 0}}, result.RunAt}},

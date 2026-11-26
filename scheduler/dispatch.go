@@ -26,8 +26,8 @@ func (s *Scheduler) storageCtx(ctx context.Context) (context.Context, context.Ca
 
 // loadTasks verifies that the storage backend is reachable and logs every
 // persisted task state for diagnostics. It does not populate the in-memory
-// dispatch map. Use [Scheduler.Bind] to attach functions to persisted tasks
-// before or after Start.
+// dispatch map — tasks must be re-registered with their functions via
+// [Scheduler.Register] after Start returns.
 func (s *Scheduler) loadTasks(ctx context.Context) error {
 	opCtx, cancel := s.storageCtx(ctx)
 	defer cancel()

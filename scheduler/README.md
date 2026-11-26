@@ -1,7 +1,8 @@
 # scheduler
 
-Use `Register` to create a task. Duplicate IDs in storage or on the local scheduler return `horai.ErrTaskAlreadyRegistered`.
-Use `Bind` to attach a function to an existing task after a restart or on another replica. The schedule or one-shot `RunAt` must match the stored task. Binding preserves the current schedule and execution state. `RunOnStart` applies only when creating a periodic task.
+`Register` installs a handler on this scheduler instance and adopts any task already persisted under its ID.
+A repeated registration on the same instance returns `horai.ErrTaskAlreadyRegistered`.
+`RunOnStart` honors the same grace window for persisted periodic tasks, including runs that are still in flight.
 
 Start the engine to dispatch tasks. Stop cancels and drains executions.
 Run IDs combine instance identity and random bytes. Leases are renewed until finalization ends.
