@@ -129,8 +129,8 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 		requireCompleted(t, s)
 		require.Equal(t, int32(1), runs.Load())
 
-		// Same RunAt, from this or another instance: stays completed.
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(runAt, &runs, released)))
+		// A new instance adopting the same RunAt keeps it completed.
+		require.ErrorIs(t, s.Register(t.Context(), blockingOneShot(runAt, &runs, released)), horai.ErrTaskAlreadyRegistered)
 		other := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
 		require.NoError(t, other.Register(t.Context(), blockingOneShot(runAt, &runs, released)))
 		st, err := s.Task(t.Context(), "task")
@@ -141,7 +141,8 @@ func TestReRegisterCompletedOneShot(t *testing.T) {
 			"re-registering with the same RunAt ran the task again")
 
 		// A new RunAt is a new occurrence.
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(runAt.Add(time.Second), &runs, released)))
+		updated := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+		require.NoError(t, updated.Register(t.Context(), blockingOneShot(runAt.Add(time.Second), &runs, released)))
 		require.Eventually(t, func() bool { return runs.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
 			"a new RunAt must schedule a new run")
 		requireCompleted(t, s)
@@ -265,7 +266,8 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 		require.NoError(t, s.Register(t.Context(), blockingOneShot(first, &runs, release)))
 		require.Eventually(t, func() bool { return runs.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
 
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)))
+		updated := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+		require.NoError(t, updated.Register(t.Context(), blockingOneShot(second, &runs, release)))
 		close(release)
 
 		require.Eventually(t, func() bool { return runs.Load() == 2 }, 3*time.Second, 10*time.Millisecond,
@@ -275,7 +277,7 @@ func TestReRegisterNewRunAtDuringRun(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, second.Unix(), st.RunAt)
 
-		require.NoError(t, s.Register(t.Context(), blockingOneShot(second, &runs, release)))
+		require.NoError(t, engine(t, mem).Register(t.Context(), blockingOneShot(second, &runs, release)))
 		require.Never(t, func() bool { return runs.Load() > 2 }, time.Second, 20*time.Millisecond)
 	})
 }

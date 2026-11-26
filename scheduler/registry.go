@@ -19,11 +19,11 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// Register adds or updates a task in the scheduler. The task is persisted to
-// [horai.Store] and registered in the in-memory dispatch map. If a task with the
-// same ID already exists, its configuration is merged: the schedule, priority,
-// and description are updated, while execution history fields (LastRunAt,
-// Failures, etc.) are preserved.
+// Register installs a task on this scheduler instance. If a task with the same
+// ID is already registered on this instance, Register returns
+// [horai.ErrTaskAlreadyRegistered] without changing the handler or stored state.
+// When the ID exists only in [horai.Store], Register adopts the task, updating
+// its configuration while preserving execution history and any in-flight run.
 //
 // cfg must have a non-empty ID and a non-nil Func. Exactly one of Schedule or
 // RunAt must be set; providing both returns [horai.ErrScheduleConflict]. RunAt must
@@ -42,6 +42,22 @@ import (
 // RunAt was persisted count as registered for their last run's start time: a
 // RunAt after it schedules a new run, an earlier or equal one does not.
 func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
+	lock := s.registrationLock(cfg.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.mu.RLock()
+	_, registered := s.tasks[cfg.ID]
+	s.mu.RUnlock()
+
+	if registered {
+		return fmt.Errorf("task %q: %w", cfg.ID, horai.ErrTaskAlreadyRegistered)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if err := validateTaskConfig(cfg); err != nil {
 		return err
 	}
@@ -64,10 +80,6 @@ func (s *Scheduler) Register(ctx context.Context, cfg schedtask.Config) error {
 			return err
 		}
 	}
-
-	lock := s.registrationLock(cfg.ID)
-	lock.Lock()
-	defer lock.Unlock()
 
 	now := s.opts.clock.Now()
 	if !isOneShot && sched.Next(now).IsZero() {

@@ -29,6 +29,10 @@ func TestScheduleCacheFollowsRegistration(t *testing.T) {
 	for _, spec := range []string{"@every 1m", "@every 2m"} {
 		require.NoError(t, s.Register(t.Context(), task.Config{ID: "id", Schedule: spec, Func: func(context.Context) error { return nil }}))
 		require.Len(t, s.tasks, 1)
+
+		if spec == "@every 1m" {
+			require.NoError(t, s.Unregister(t.Context(), "id"))
+		}
 	}
 
 	require.Equal(t, now.Add(2*time.Minute), s.calculateNextRun(t.Context(), now, &horai.TaskState{ID: "id", Schedule: "@every 2m"}))

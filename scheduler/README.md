@@ -1,6 +1,10 @@
 # scheduler
 
-Register task functions, then Start the engine. Stop cancels and drains executions.
+`Register` installs a handler on this scheduler instance and adopts any task already persisted under its ID.
+A repeated registration on the same instance returns `horai.ErrTaskAlreadyRegistered`.
+`RunOnStart` honors the same grace window for persisted periodic tasks, including runs that are still in flight.
+
+Start the engine to dispatch tasks. Stop cancels and drains executions.
 Run IDs combine instance identity and random bytes. Leases are renewed until finalization ends.
 Recovery queries all unfinished runs, including paused and disabled tasks, and resets only abandoned runs using revision fences.
 

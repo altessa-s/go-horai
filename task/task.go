@@ -17,8 +17,10 @@ import (
 type Registrar interface {
 	// Register adds a task described by cfg to the scheduler. It returns an
 	// error if the configuration is invalid (e.g. missing [Config.ID] or
-	// missing both Schedule and RunAt). The context may carry deadlines or
-	// cancellation that bound the registration call itself.
+	// missing both Schedule and RunAt). An ID already registered on this
+	// scheduler instance returns an error matching horai.ErrTaskAlreadyRegistered.
+	// A new instance can adopt a persisted task through Register. The context
+	// bounds the registration call itself.
 	Register(ctx context.Context, cfg Config) error
 }
 
@@ -73,8 +75,7 @@ func (p Priority) String() string {
 // or RunAt. Schedule and RunAt are mutually exclusive; setting both is an
 // error.
 type Config struct {
-	// ID is a unique, non-empty identifier for the task. Registering a
-	// second task with the same ID replaces the previous registration.
+	// ID is a non-empty identifier unique within the scheduler instance.
 	ID string
 	// Description is an optional human-readable summary shown in management
 	// UIs and task-history records.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -134,7 +135,7 @@ func TestTwoEnginesOneOccurrence(t *testing.T) {
 		time.Sleep(3 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load())
-		require.NoError(t, a.Register(t.Context(), cfg))
+		require.ErrorIs(t, a.Register(t.Context(), cfg), horai.ErrTaskAlreadyRegistered)
 		time.Sleep(2 * time.Second)
 		synctest.Wait()
 		require.Equal(t, int32(1), calls.Load())
@@ -266,7 +267,8 @@ func BenchmarkRegister(b *testing.B) {
 	s := engine(b, st)
 
 	cfg := task.Config{ID: "bench", Schedule: "@every 1m", Func: func(context.Context) error { return nil }}
-	for b.Loop() {
+	for i := 0; b.Loop(); i++ {
+		cfg.ID = strconv.Itoa(i)
 		require.NoError(b, s.Register(b.Context(), cfg))
 	}
 }
